@@ -19,13 +19,13 @@ GATEWAY_URL = os.getenv("GOOGLE_GOVERNANCE_URL", os.getenv("HERMES_GOOGLE_GOVERN
 BASE = Path(os.getenv("GOOGLE_GOVERNANCE_PROJECT_DIR", str(Path(__file__).resolve().parents[1])))
 CONFIG_BASE = Path(os.getenv("GOOGLE_GOVERNANCE_CONFIG_DIR", str(BASE / ".google-governance/config")))
 APPROVAL_SECRET_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH", str(CONFIG_BASE / "approval_admin_secret")))
-PROFILE = os.getenv("GOOGLE_GOVERNANCE_PROFILE", os.getenv("HERMES_GOOGLE_GOVERNANCE_PROFILE", "reasoning"))
-ACCESS_TOKEN = os.getenv("GOOGLE_GOVERNANCE_ACCESS_TOKEN") or os.getenv("HERMES_GOOGLE_GOVERNANCE_ACCESS_TOKEN")
+PROFILE = os.getenv("GOOGLE_GOVERNANCE_PROFILE", os.getenv("AGENT_GOOGLE_GOVERNANCE_PROFILE", "agent-a"))
+ACCESS_TOKEN = os.getenv("GOOGLE_GOVERNANCE_ACCESS_TOKEN") or os.getenv("AGENT_GOOGLE_GOVERNANCE_ACCESS_TOKEN")
 
 
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not ACCESS_TOKEN or not ACCESS_TOKEN.strip():
-        raise RuntimeError("GOOGLE_GOVERNANCE_ACCESS_TOKEN or HERMES_GOOGLE_GOVERNANCE_ACCESS_TOKEN is required; filesystem JWT signing is disabled")
+        raise RuntimeError("GOOGLE_GOVERNANCE_ACCESS_TOKEN or AGENT_GOOGLE_GOVERNANCE_ACCESS_TOKEN is required; filesystem JWT signing is disabled")
     payload = dict(payload)
     payload.setdefault("profile", PROFILE)
     payload.setdefault("workflow_intent", "operator.approval_cli")

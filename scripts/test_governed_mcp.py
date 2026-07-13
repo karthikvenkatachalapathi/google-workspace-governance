@@ -5,7 +5,7 @@ These tests avoid Gmail/calendar/Drive mutations. They verify:
 - MCP stdio discovery exposes the complete governed Workspace schema.
 - Dangerous/externalizing operations are represented by tools and wired to the
   approval-required helper instead of direct Google execution.
-- A real Reasoning/reasoning Sheets read routes through the unified gateway.
+- A real agent-a Sheets read routes through the unified gateway.
 - Gateway action classification covers Calendar, Gmail, Drive, Docs, Sheets,
   Slides, Contacts, and approval-blocked surfaces.
 """
@@ -104,13 +104,13 @@ def _load_gateway_module():
         raise SystemExit("could not load gateway module spec")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    setattr(module, "AUDIT_PATH", Path(tempfile.gettempdir()) / "hermes-google-governance-governed-test-audit.jsonl")
-    setattr(module, "APPROVAL_STORE_PATH", Path(tempfile.gettempdir()) / "hermes-google-governance-governed-test-approvals.jsonl")
+    setattr(module, "AUDIT_PATH", Path(tempfile.gettempdir()) / "google-workspace-governance-governed-test-audit.jsonl")
+    setattr(module, "APPROVAL_STORE_PATH", Path(tempfile.gettempdir()) / "google-workspace-governance-governed-test-approvals.jsonl")
     return module
 
 
 def _install_test_workspace_token_db(gateway) -> None:
-    db_path = Path(tempfile.gettempdir()) / "hermes-google-governance-governed-test-tokens.sqlite"
+    db_path = Path(tempfile.gettempdir()) / "google-workspace-governance-governed-test-tokens.sqlite"
     if db_path.exists():
         db_path.unlink()
     with sqlite3.connect(db_path) as conn:
@@ -137,12 +137,12 @@ def _install_test_workspace_token_db(gateway) -> None:
             VALUES(?,?,?,?,?,?,?,?,?)
             """,
             (
-                "kochuraninellikkattil/workspace-full.json",
-                "kochuraninellikkattil",
+                "workspace-shared/workspace-full.json",
+                "workspace-shared",
                 "workspace-full.json",
-                "kochuraninellikkattil@gmail.com",
+                "workspace-shared@gmail.com",
                 "{}",
-                json.dumps({"token_label": "Mom Gmail", "account_label": "Mom Gmail"}),
+                json.dumps({"token_label": "Shared Workspace", "account_label": "Shared Workspace"}),
                 "[]",
                 "connected",
                 "",
@@ -176,43 +176,43 @@ def assert_no_legacy_google_tools_exposed() -> None:
 def assert_gateway_action_mapping() -> None:
     gateway = _load_gateway_module()
     _install_test_workspace_token_db(gateway)
-    if gateway._dynamic_token_id("airbnb", "Mom Gmail") != "kochuraninellikkattil/workspace-full.json":
+    if gateway._dynamic_token_id("agent-b", "Shared Workspace") != "workspace-shared/workspace-full.json":
         raise SystemExit("token display name did not resolve to SQLite workspace token")
-    if gateway._dynamic_token_id("airbnb", "airbnb/Mom Gmail") != "kochuraninellikkattil/workspace-full.json":
+    if gateway._dynamic_token_id("agent-b", "agent-b/Shared Workspace") != "workspace-shared/workspace-full.json":
         raise SystemExit("profile-scoped token display name did not resolve to SQLite workspace token")
-    route_payload = {"token_route": "Mom Gmail"}
-    gateway._canonicalize_payload_token_route("airbnb", route_payload)
-    if route_payload.get("token_route") != "airbnb/kochuraninellikkattil" or route_payload.get("token_route_requested") != "Mom Gmail":
+    route_payload = {"token_route": "Shared Workspace"}
+    gateway._canonicalize_payload_token_route("agent-b", route_payload)
+    if route_payload.get("token_route") != "agent-b/workspace-shared" or route_payload.get("token_route_requested") != "Shared Workspace":
         raise SystemExit(f"token route was not canonicalized from display name: {route_payload}")
-    if gateway.resource_for("airbnb", "gmail.search_gmail_messages", route_payload) != "gmail_kochuraninellikkattil":
+    if gateway.resource_for("agent-b", "gmail.search_gmail_messages", route_payload) != "gmail_workspace_shared":
         raise SystemExit(f"canonical display-name route did not map to resource alias: {route_payload}")
     for case, expected in ACTION_CASES.items():
         got = gateway._google_request_action(*case)
         if got != expected:
             raise SystemExit(f"action mapping mismatch for {case}: got {got}, expected {expected}")
     route_cases = [
-        ("airbnb", "gmail.search", {"token_route": "airbnb/business_workspace"}, "gmail_business_workspace"),
-        ("airbnb", "docs.get", {"token_route": "airbnb/kochuraninellikkattil"}, "docs_kochuraninellikkattil_workspace"),
-        ("airbnb", "sheets.get", {"token_route": "airbnb/kochuraninellikkattil"}, "sheets_kochuraninellikkattil_workspace"),
-        ("airbnb", "calendar.list", {"token_route": "airbnb/kochuraninellikkattil"}, "calendar_kochuraninellikkattil_primary"),
-        ("airbnb", "drive.search", {"token_route": "airbnb/kochuraninellikkattil"}, "drive_kochuraninellikkattil_workspace"),
-        ("airbnb", "contacts.search", {"token_route": "airbnb/kochuraninellikkattil"}, "contacts_kochuraninellikkattil"),
+        ("agent-b", "gmail.search", {"token_route": "agent-b/workspace_shared"}, "gmail_workspace_shared"),
+        ("agent-b", "docs.get", {"token_route": "agent-b/workspace-shared"}, "docs_workspace_shared_workspace"),
+        ("agent-b", "sheets.get", {"token_route": "agent-b/workspace-shared"}, "sheets_workspace_shared_workspace"),
+        ("agent-b", "calendar.list", {"token_route": "agent-b/workspace-shared"}, "calendar_workspace_shared_primary"),
+        ("agent-b", "drive.search", {"token_route": "agent-b/workspace-shared"}, "drive_workspace_shared_workspace"),
+        ("agent-b", "contacts.search", {"token_route": "agent-b/workspace-shared"}, "contacts_workspace_shared"),
     ]
     for profile, action, payload, expected in route_cases:
         got = gateway.resource_for(profile, action, payload)
         if got != expected:
             raise SystemExit(f"route resource mismatch for {(profile, action, payload)}: got {got}, expected {expected}")
     typed_policy_cases = [
-        ("/v1/docs/get", "docs.get_doc_content", {"document_id": "doc", "token_route": "airbnb/kochuraninellikkattil"}, "docs_kochuraninellikkattil_workspace"),
-        ("/v1/calendar/update", "calendar.manage_event", {"event_id": "evt", "token_route": "airbnb/kochuraninellikkattil"}, "calendar_kochuraninellikkattil_primary"),
-        ("/v1/sheets/update", "sheets.modify_sheet_values", {"spreadsheet_id": "sheet", "range_a1": "A1", "token_route": "airbnb/kochuraninellikkattil"}, "sheets_kochuraninellikkattil_workspace"),
+        ("/v1/docs/get", "docs.get_doc_content", {"document_id": "doc", "token_route": "agent-b/workspace-shared"}, "docs_workspace_shared_workspace"),
+        ("/v1/calendar/update", "calendar.manage_event", {"event_id": "evt", "token_route": "agent-b/workspace-shared"}, "calendar_workspace_shared_primary"),
+        ("/v1/sheets/update", "sheets.modify_sheet_values", {"spreadsheet_id": "sheet", "range_a1": "A1", "token_route": "agent-b/workspace-shared"}, "sheets_workspace_shared_workspace"),
     ]
     for path, expected_action, payload, expected_resource in typed_policy_cases:
-        policy_action, policy_resource = gateway._route_policy_context(path, "airbnb", payload)
+        policy_action, policy_resource = gateway._route_policy_context(path, "agent-b", payload)
         if (policy_action, policy_resource) != (expected_action, expected_resource):
             raise SystemExit(f"typed policy context mismatch for {path}: {(policy_action, policy_resource)}")
     blocked = gateway._governance_blocked(
-        "reasoning",
+        "agent-a",
         {"action": "drive.delete", "resource_alias": "drive_any", "reason": "test", "file_id_sha256": "abc", "request_id": "test-request"},
     )
     if blocked.get("status") != "approval_required" or blocked.get("action") != "drive.delete":
@@ -240,24 +240,24 @@ def assert_gateway_upstream_payload_adapters() -> None:
     setattr(gateway, "_typed_google_request", fake_typed_google_request)
     setattr(gateway, "_session", lambda profile, route=None: object())
 
-    delete_call = gateway._workspace_tool_execute("reasoning", "manage_event", {"action": "delete", "event_id": "evt-1", "calendar_id": "primary"})
+    delete_call = gateway._workspace_tool_execute("agent-a", "manage_event", {"action": "delete", "event_id": "evt-1", "calendar_id": "primary"})
     if delete_call["method"] != "DELETE" or not str(delete_call["url"]).endswith("/events/evt-1"):
         raise SystemExit(f"manage_event delete did not route to Calendar DELETE: {delete_call}")
 
-    update_call = gateway._workspace_tool_execute("reasoning", "manage_event", {"action": "update", "event_id": "evt-2", "calendar_id": "primary", "start_time": "2026-07-12T10:00:00-05:00", "end_time": "2026-07-12T11:00:00-05:00", "summary": "Updated"})
+    update_call = gateway._workspace_tool_execute("agent-a", "manage_event", {"action": "update", "event_id": "evt-2", "calendar_id": "primary", "start_time": "2026-07-12T10:00:00-05:00", "end_time": "2026-07-12T11:00:00-05:00", "summary": "Updated"})
     body = update_call.get("json_body") or {}
     if update_call["method"] != "PATCH" or body.get("start", {}).get("dateTime") != "2026-07-12T10:00:00-05:00" or body.get("end", {}).get("dateTime") != "2026-07-12T11:00:00-05:00":
         raise SystemExit(f"manage_event update did not adapt upstream start_time/end_time: {update_call}")
 
-    sheet_get = gateway._workspace_tool_execute("reasoning", "read_sheet_values", {"spreadsheet_id": "sheet-1", "range_name": "Sheet1!A1:B2"})
+    sheet_get = gateway._workspace_tool_execute("agent-a", "read_sheet_values", {"spreadsheet_id": "sheet-1", "range_name": "Sheet1!A1:B2"})
     if sheet_get["method"] != "GET" or not str(sheet_get["url"]).endswith("/values/Sheet1%21A1%3AB2"):
         raise SystemExit(f"read_sheet_values did not adapt upstream range_name: {sheet_get}")
 
-    sheet_clear = gateway._workspace_tool_execute("reasoning", "modify_sheet_values", {"spreadsheet_id": "sheet-1", "range_name": "Sheet1!A1", "clear_values": True})
+    sheet_clear = gateway._workspace_tool_execute("agent-a", "modify_sheet_values", {"spreadsheet_id": "sheet-1", "range_name": "Sheet1!A1", "clear_values": True})
     if sheet_clear["method"] != "POST" or not str(sheet_clear["url"]).endswith("/values/Sheet1%21A1:clear"):
         raise SystemExit(f"modify_sheet_values clear_values did not route to clear: {sheet_clear}")
 
-    drive_revoke = gateway._workspace_tool_execute("reasoning", "manage_drive_access", {"file_id": "file-1", "action": "revoke", "permission_id": "perm-1"})
+    drive_revoke = gateway._workspace_tool_execute("agent-a", "manage_drive_access", {"file_id": "file-1", "action": "revoke", "permission_id": "perm-1"})
     if drive_revoke["method"] != "DELETE" or not str(drive_revoke["url"]).endswith("/permissions/perm-1"):
         raise SystemExit(f"manage_drive_access action=revoke did not route to permission DELETE: {drive_revoke}")
 

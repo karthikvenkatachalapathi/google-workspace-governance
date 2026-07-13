@@ -1,11 +1,3 @@
----
-Date Created: 07/09/2026 14:45
-Last Updated Date: 07/09/2026 14:45
-Last Updated by: Hermione
-Update Changelog: Updated metadata headers and enforced required fields.
----
-
-
 # Public publishing manifest
 
 This repository is intended to be cloneable and runnable by another operator after they add their own local Google OAuth credentials and secrets.

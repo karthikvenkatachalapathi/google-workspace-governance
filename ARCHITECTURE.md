@@ -1,11 +1,3 @@
----
-Date Created: 07/09/2026 14:45
-Last Updated Date: 07/09/2026 14:45
-Last Updated by: Hermione
-Update Changelog: Updated metadata headers and enforced required fields.
----
-
-
 # Architecture
 
 Google Workspace Governance Gateway is a policy-enforcing access layer between agents and Google Workspace APIs.
@@ -96,7 +88,7 @@ The MCP wrapper creates an HS256 JWT per request. Claims include:
 
 | Claim | Purpose |
 |---|---|
-| `iss` | Active profile, e.g. `reasoning` |
+| `iss` | Active profile, e.g. `agent-a` |
 | `aud` | `google-workspace-governance` |
 | `iat`, `nbf`, `exp` | Short-lived request validity window |
 | `scope` | `google.governed` |
@@ -130,10 +122,10 @@ A route is:
 Examples:
 
 ```text
-reasoning/personal-primary
-reasoning/business-airbnb
-airbnb/business-airbnb
-librarian/personal-primary
+agent-a/workspace-primary
+agent-a/business-agent-b
+agent-b/workspace-shared
+support-bot/workspace-primary
 ```
 
 Properties:

@@ -51,7 +51,7 @@
     {
       "targetBlank": true,
       "title": "Control UI",
-      "url": "http://192.168.2.107:8095/"
+      "url": "http://127.0.0.1:8095/"
     },
     {
       "targetBlank": true,
@@ -126,7 +126,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "hermes_google_governance_up",
+          "expr": "google_workspace_governance_up",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -184,7 +184,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "time() - hermes_google_governance_start_time_seconds",
+          "expr": "time() - google_workspace_governance_start_time_seconds",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -246,7 +246,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "up{job=\"hermes-google-governance\"}",
+          "expr": "up{job=\"google-workspace-governance\"}",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -304,7 +304,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total)) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total)) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -366,7 +366,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{status=~\"error|failed|denied|unauthorized\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{status=~\"error|failed|denied|unauthorized\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -479,7 +479,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[5m]))) or vector(0)",
           "instant": false,
           "legendFormat": "requests/sec",
           "range": true,
@@ -535,7 +535,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(hermes_google_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(google_workspace_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
           "instant": false,
           "legendFormat": "avg ms",
           "range": true,
@@ -591,7 +591,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "max(hermes_google_governance_up) or vector(0)",
+          "expr": "max(google_workspace_governance_up) or vector(0)",
           "instant": false,
           "legendFormat": "gateway_health",
           "range": true,
@@ -602,7 +602,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "max(up{job=\"hermes-google-governance\"}) or vector(0)",
+          "expr": "max(up{job=\"google-workspace-governance\"}) or vector(0)",
           "instant": false,
           "legendFormat": "prometheus_scrape_up",
           "range": true,
@@ -613,7 +613,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "sum(hermes_google_governance_audit_events_total) or vector(0)",
+          "expr": "sum(google_workspace_governance_audit_events_total) or vector(0)",
           "instant": false,
           "legendFormat": "audit_events_total",
           "range": true,
@@ -669,7 +669,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "sum(increase(hermes_google_governance_audit_events_total[5m])) or vector(0)",
+          "expr": "sum(increase(google_workspace_governance_audit_events_total[5m])) or vector(0)",
           "instant": false,
           "legendFormat": "events_5m",
           "range": true,
@@ -680,7 +680,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "sum(rate(hermes_google_governance_audit_events_total[5m])) or vector(0)",
+          "expr": "sum(rate(google_workspace_governance_audit_events_total[5m])) or vector(0)",
           "instant": false,
           "legendFormat": "events_per_second",
           "range": true,
@@ -756,7 +756,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -814,7 +814,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"allow|would_allow\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{decision=~\"allow|would_allow\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -876,7 +876,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"deny|would_deny|blocked\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{decision=~\"deny|would_deny|blocked\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -938,7 +938,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|would_ask|approval_required\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{decision=~\"ask|would_ask|approval_required\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -993,7 +993,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"}[5m])) by (status)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"}[5m])) by (status)) or vector(0)",
           "instant": false,
           "legendFormat": "{{status}}",
           "range": true,
@@ -1101,7 +1101,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*token.*issued.*|.*token.*create.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*token.*issued.*|.*token.*create.*\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1163,7 +1163,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1221,7 +1221,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*revoke.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*revoke.*\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1383,7 +1383,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[5m])) by (status)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[5m])) by (status)) or vector(0)",
           "instant": false,
           "legendFormat": "{{status}}",
           "range": true,
@@ -1439,7 +1439,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\"}[5m])) by (profile)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{profile=~\"$profile\"}[5m])) by (profile)) or vector(0)",
           "instant": false,
           "legendFormat": "{{profile}}",
           "range": true,
@@ -1480,7 +1480,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "sum by (profile, action, status, decision) (increase(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[$__range]))",
+          "expr": "sum by (profile, action, status, decision) (increase(google_workspace_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1591,7 +1591,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1649,7 +1649,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*approval.*\",decision=~\"allow|approved\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*approval.*\",decision=~\"allow|approved\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1711,7 +1711,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*approval.*\",decision=~\"deny|denied\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*approval.*\",decision=~\"deny|denied\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1769,7 +1769,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(count(count by (profile) (hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"}))) or vector(0)",
+          "expr": "(count(count by (profile) (google_workspace_governance_audit_events_total{decision=~\"ask|approval_required|pending\"}))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1876,7 +1876,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*acl.*|.*policy.*|.*governance.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*acl.*|.*policy.*|.*governance.*\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -1938,7 +1938,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*policy.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*policy.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2042,7 +2042,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"gmail.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\"gmail.*\"}[5m]))) or vector(0)",
           "instant": false,
           "legendFormat": "Gmail",
           "range": true,
@@ -2053,7 +2053,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"calendar.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\"calendar.*\"}[5m]))) or vector(0)",
           "instant": false,
           "legendFormat": "Calendar",
           "range": true,
@@ -2064,7 +2064,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"drive.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\"drive.*\"}[5m]))) or vector(0)",
           "instant": false,
           "legendFormat": "Drive",
           "range": true,
@@ -2075,7 +2075,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"docs.*|sheets.*|slides.*|people.*|contacts.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\"docs.*|sheets.*|slides.*|people.*|contacts.*\"}[5m]))) or vector(0)",
           "instant": false,
           "legendFormat": "Docs/Sheets/People",
           "range": true,
@@ -2116,7 +2116,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(topk(20, sum by (profile, action) (increase(hermes_google_governance_audit_events_total[$__range])))) or vector(0)",
+          "expr": "(topk(20, sum by (profile, action) (increase(google_workspace_governance_audit_events_total[$__range])))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2191,7 +2191,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2253,7 +2253,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*quota.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*rate.*|.*quota.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2315,7 +2315,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*db.*|.*sqlite.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*db.*|.*sqlite.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2377,7 +2377,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*file.*|.*runtime.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*file.*|.*runtime.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2464,7 +2464,7 @@
             "type": "loki",
             "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
           },
-          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit|hermes-google-governance-control-audit\"}",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit|google-workspace-governance-control-audit\"}",
           "refId": "A"
         }
       ],
@@ -2541,7 +2541,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"denied|unauthorized|error|failed\",decision=~\"deny|would_deny|blocked|ask|approval_required\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{status=~\"denied|unauthorized|error|failed\",decision=~\"deny|would_deny|blocked|ask|approval_required\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2603,7 +2603,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*unknown.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*unknown.*\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2669,7 +2669,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*send.*|.*delete.*|.*share.*|.*permission.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*send.*|.*delete.*|.*share.*|.*permission.*\"}[24h]))) or vector(0)",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -2745,7 +2745,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"invalid_jwt|jwt_failed|invalid_signature|unauthorized\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{status=~\"invalid_jwt|jwt_failed|invalid_signature|unauthorized\",profile=~\"$profile\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -2810,7 +2810,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\",status=~\"denied|error|failed\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\",status=~\"denied|error|failed\",profile=~\"$profile\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -2871,7 +2871,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"expired|revoked|invalid_token\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{status=~\"expired|revoked|invalid_token\",profile=~\"$profile\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -2936,7 +2936,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{decision=~\"deny|blocked|would_deny\",action=~\".*delete.*|.*send.*|.*share.*|.*permission.*\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{decision=~\"deny|blocked|would_deny\",action=~\".*delete.*|.*send.*|.*share.*|.*permission.*\",profile=~\"$profile\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3001,7 +3001,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3012,7 +3012,7 @@
         },
         {
           "refId": "B",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3023,7 +3023,7 @@
         },
         {
           "refId": "C",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*quota.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\".*rate.*|.*quota.*\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3034,7 +3034,7 @@
         },
         {
           "refId": "D",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{decision=~\"deny|blocked|would_deny\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{decision=~\"deny|blocked|would_deny\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3090,7 +3090,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(topk(20, sum by (profile, action, status, decision) (increase(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|error|denied|failed\",profile=~\"$profile\"}[$__range])))) or vector(0)",
+          "expr": "(topk(20, sum by (profile, action, status, decision) (increase(google_workspace_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|error|denied|failed\",profile=~\"$profile\"}[$__range])))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3179,7 +3179,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*operator.*|.*acl.*|.*policy.*|.*oauth.*|.*token.*|.*deploy.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*operator.*|.*acl.*|.*policy.*|.*oauth.*|.*token.*|.*deploy.*\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3236,7 +3236,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*emergency.*|.*override.*|.*break.*glass.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*emergency.*|.*override.*|.*break.*glass.*\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3297,7 +3297,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*oauth.*|.*workspace.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*oauth.*|.*workspace.*\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3354,7 +3354,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*deploy.*|.*config.*|.*runtime.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*deploy.*|.*config.*|.*runtime.*\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3460,7 +3460,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(rate(hermes_google_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(hermes_google_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(google_workspace_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3471,7 +3471,7 @@
         },
         {
           "refId": "B",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"error|failed\"}[5m])) / clamp_min(sum(rate(hermes_google_governance_audit_events_total[5m])), 0.001)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{status=~\"error|failed\"}[5m])) / clamp_min(sum(rate(google_workspace_governance_audit_events_total[5m])), 0.001)) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3482,7 +3482,7 @@
         },
         {
           "refId": "C",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"ok|success|allowed\"}[5m])) / clamp_min(sum(rate(hermes_google_governance_audit_events_total[5m])), 0.001)) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{status=~\"ok|success|allowed\"}[5m])) / clamp_min(sum(rate(google_workspace_governance_audit_events_total[5m])), 0.001)) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3538,7 +3538,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*quota.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\".*quota.*\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3549,7 +3549,7 @@
         },
         {
           "refId": "B",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*retry.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\".*retry.*\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3560,7 +3560,7 @@
         },
         {
           "refId": "C",
-          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*limit.*\"}[5m]))) or vector(0)",
+          "expr": "(sum(rate(google_workspace_governance_audit_events_total{action=~\".*rate.*|.*limit.*\"}[5m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3616,7 +3616,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(topk(25, sum by (action, profile, status) (increase(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[$__range])))) or vector(0)",
+          "expr": "(topk(25, sum by (action, profile, status) (increase(google_workspace_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[$__range])))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3705,7 +3705,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - hermes_google_governance_start_time_seconds",
+          "expr": "time() - google_workspace_governance_start_time_seconds",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3762,7 +3762,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "100 * max(up{job=\"hermes-google-governance\"})",
+          "expr": "100 * max(up{job=\"google-workspace-governance\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3827,7 +3827,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*sqlite.*|.*database.*|.*db.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*sqlite.*|.*database.*|.*db.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3888,7 +3888,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*backup.*|.*runtime.*\"}[24h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*backup.*|.*runtime.*\"}[24h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -3994,7 +3994,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(1 - max(hermes_google_governance_up)) or vector(0)",
+          "expr": "(1 - max(google_workspace_governance_up)) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4055,7 +4055,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[15m]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[15m]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4120,7 +4120,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
+          "expr": "(sum(google_workspace_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4185,7 +4185,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[1h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[1h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4250,7 +4250,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*quota.*|.*rate.*|.*limit.*\"}[1h]))) or vector(0)",
+          "expr": "(sum(increase(google_workspace_governance_audit_events_total{action=~\".*quota.*|.*rate.*|.*limit.*\"}[1h]))) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4315,7 +4315,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - max(up{job=\"hermes-google-governance\"})",
+          "expr": "1 - max(up{job=\"google-workspace-governance\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -4406,7 +4406,7 @@
     "workspace",
     "security",
     "operations",
-    "hermes"
+    "google-workspace-governance"
   ],
   "templating": {
     "list": [
@@ -4423,7 +4423,7 @@
         "includeAll": true,
         "multi": true,
         "name": "profile",
-        "query": "label_values(hermes_google_governance_audit_events_total, profile)",
+        "query": "label_values(google_workspace_governance_audit_events_total, profile)",
         "refresh": 2,
         "type": "query"
       },
@@ -4440,7 +4440,7 @@
         "includeAll": true,
         "multi": true,
         "name": "action",
-        "query": "label_values(hermes_google_governance_audit_events_total, action)",
+        "query": "label_values(google_workspace_governance_audit_events_total, action)",
         "refresh": 2,
         "type": "query"
       },
@@ -4457,7 +4457,7 @@
         "includeAll": true,
         "multi": true,
         "name": "status",
-        "query": "label_values(hermes_google_governance_audit_events_total, status)",
+        "query": "label_values(google_workspace_governance_audit_events_total, status)",
         "refresh": 2,
         "type": "query"
       },
@@ -4474,7 +4474,7 @@
         "includeAll": true,
         "multi": true,
         "name": "decision",
-        "query": "label_values(hermes_google_governance_audit_events_total, decision)",
+        "query": "label_values(google_workspace_governance_audit_events_total, decision)",
         "refresh": 2,
         "type": "query"
       },
@@ -4491,7 +4491,7 @@
         "includeAll": true,
         "multi": true,
         "name": "host",
-        "query": "label_values(up{job=\"hermes-google-governance\"}, instance)",
+        "query": "label_values(up{job=\"google-workspace-governance\"}, instance)",
         "refresh": 2,
         "type": "query"
       },
@@ -4536,7 +4536,7 @@
           "type": "prometheus",
           "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
         },
-        "query": "label_values(up{job=\"hermes-google-governance\"}, instance)",
+        "query": "label_values(up{job=\"google-workspace-governance\"}, instance)",
         "includeAll": true,
         "multi": true,
         "refresh": 2,

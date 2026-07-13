@@ -1,17 +1,3 @@
----
-Date Created: 07/09/2026 14:45
-Last Updated Date: 07/09/2026 14:45
-Last Updated by: Hermione
-Update Changelog: Updated metadata headers and enforced required fields.
----
-
-
-
-
-
-
-
-
 # Google Workspace Governance Gateway
 
 A self-hosted governance gateway for Google Workspace access by AI agents, MCP clients, scripts, and automations.
@@ -23,12 +9,12 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 - Exposes governed Google Workspace tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts/People.
 - Stores Google OAuth credentials centrally in gateway-owned state instead of in each agent profile.
 - Lets administrators connect Google accounts from a browser UI using a Google OAuth Desktop App `client_secret.json`.
-- Maps agent profiles to one or more Google account routes such as `reasoning/personal-primary` or `airbnb/business-airbnb`.
+- Maps agent profiles to one or more Google account routes such as `agent-a/workspace-primary` or `agent-b/workspace-shared`.
 - Enforces `allow`, `ask`, or `deny` decisions for each profile/action/resource surface.
 - Supports approval-required flows for high-risk operations such as sending mail, deleting calendar events, Drive sharing, and Drive deletes.
 - Generates and reloads runtime policy from the control UI.
 - Provides live access logs, control-plane audit logs, and optional Prometheus/Loki/Grafana integration.
-- Includes a governed MCP server so Hermes, Claude Desktop/Code, or another MCP-capable runtime can use Google Workspace without direct Google token access.
+- Includes a governed MCP server so Claude Desktop/Code or another MCP-capable runtime can use Google Workspace without direct Google token access.
 
 ## How this differs from typical Google Workspace MCP servers
 
@@ -53,23 +39,22 @@ The goal is not just “Google tools over MCP.” The goal is a governed Google 
 
 ### Profile
 
-A profile is the calling agent or runtime identity. In Hermes, examples are:
+A profile is the calling agent or runtime identity. Example runtime identities might be:
 
-- `default`
-- `reasoning`
-- `daily-assistant`
-- `airbnb`
-- `librarian`
+- `agent-a`
+- `agent-b`
+- `support-bot`
+- `ops-automation`
 
-Use real profile slugs. Do not model policy around generic labels like “assistant” unless that is actually your profile name.
+Use stable slugs that represent your own agent or automation identities.
 
 ### Account alias
 
 An account alias names a Google Workspace account inside the gateway. Examples:
 
-- `personal-primary`
-- `business-airbnb`
-- `rani-gmail`
+- `workspace-primary`
+- `workspace-shared`
+- `finance-workspace`
 
 The alias is separate from the OAuth token file and separate from any one agent profile. One Google account can be routed to multiple profiles.
 
@@ -84,9 +69,9 @@ A token route combines the profile and account alias:
 Examples:
 
 ```text
-reasoning/personal-primary
-airbnb/business-airbnb
-librarian/personal-primary
+agent-a/workspace-primary
+agent-b/workspace-shared
+support-bot/workspace-primary
 ```
 
 A profile may have multiple routes. A tool call can pass an explicit `token_route` to choose which connected account to use. If omitted, the MCP wrapper may use `GOOGLE_GOVERNANCE_TOKEN_ROUTE` as that profile's default.
@@ -186,8 +171,8 @@ The YAML files in this repository are seed/source artifacts and recovery materia
       "args": ["/path/to/google-workspace-governance-gateway/.google-governance/runtime/governed_google_mcp.py"],
       "env": {
         "GOOGLE_GOVERNANCE_URL": "http://127.0.0.1:8768",
-        "GOOGLE_GOVERNANCE_PROFILE": "reasoning",
-        "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "reasoning/personal-primary",
+        "GOOGLE_GOVERNANCE_PROFILE": "agent-a",
+        "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "agent-a/workspace-primary",
         "GOOGLE_GOVERNANCE_ACCESS_TOKEN": "paste-ui-generated-token-here"
       }
     }
@@ -200,11 +185,11 @@ Each tool also supports an explicit `token_route` argument so the same profile c
 
 ## Grafana dashboard
 
-The repository includes an importable Grafana operations dashboard at `grafana/google-workspace-governance-ops-dashboard.json`. It is designed around the gateway's exported Prometheus metrics (`hermes_google_governance_*`) plus Loki audit jobs for the gateway and control UI. Host/node panels are intentionally not required, so the dashboard remains useful even when node-exporter is not installed.
+The repository includes an importable Grafana operations dashboard at `grafana/google-workspace-governance-ops-dashboard.json`. It is designed around the gateway's exported Prometheus metrics (`google_workspace_governance_*`) plus Loki audit jobs for the gateway and control UI. Host/node panels are intentionally not required, so the dashboard remains useful even when node-exporter is not installed.
 
 Expected data sources:
 
-- Prometheus containing `hermes-google-governance` scrape metrics.
+- Prometheus containing `google-workspace-governance` scrape metrics.
 - Loki jobs `google-workspace-governance-gateway-audit` and `google-workspace-governance-control-audit`.
 
 ## Local verification

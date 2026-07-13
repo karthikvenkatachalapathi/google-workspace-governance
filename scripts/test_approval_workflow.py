@@ -70,7 +70,7 @@ def main() -> None:
     if gateway._approval_webhook_token() == "user_selected_webhook_token_123":
         raise SystemExit("webhook token did not fall back after env override removal")
     payload = {
-        "profile": "reasoning",
+        "profile": "agent-a",
         "workflow_intent": "mcp.governed_google",
         "request_id": "approval-test-request",
         "client": "mcp_governed_google",
@@ -83,7 +83,7 @@ def main() -> None:
         "token_route": "default",
     }
 
-    blocked = gateway._governance_blocked("reasoning", dict(payload))
+    blocked = gateway._governance_blocked("agent-a", dict(payload))
     approval_id = blocked.get("approval_id")
     if blocked.get("status") != "approval_required" or not approval_id:
         raise SystemExit(f"blocked request did not create approval: {blocked}")
@@ -99,14 +99,14 @@ def main() -> None:
     assert_no_raw_values(gateway.APPROVAL_STORE_PATH, "person@example.com", "Approval retry test")
 
     try:
-        gateway._approval_decide("reasoning", {"approval_id": approval_id, "decision": "approve_once"})
+        gateway._approval_decide("agent-a", {"approval_id": approval_id, "decision": "approve_once"})
     except PermissionError:
         pass
     else:
         raise SystemExit("approval decision succeeded without admin secret")
 
     decision = gateway._approval_decide(
-        "reasoning",
+        "agent-a",
         {
             "approval_admin_secret": "approval-test-secret",
             "approval_id": approval_id,
@@ -122,14 +122,14 @@ def main() -> None:
     setattr(gateway, "_session", lambda profile, route=None: fake_session)
     execute_payload = dict(retry_payload)
     execute_payload["request_id"] = "approval-test-retry-request"
-    result = gateway._governance_execute_approved("reasoning", execute_payload)
+    result = gateway._governance_execute_approved("agent-a", execute_payload)
     if result.get("status") != "executed":
         raise SystemExit(f"approved execution failed: {result}")
     if len(fake_session.calls) != 1 or fake_session.calls[0][0] != "POST" or "/messages/send" not in fake_session.calls[0][1]:
         raise SystemExit(f"unexpected fake session calls: {fake_session.calls}")
 
     try:
-        gateway._governance_execute_approved("reasoning", execute_payload)
+        gateway._governance_execute_approved("agent-a", execute_payload)
     except PermissionError:
         pass
     else:
@@ -142,7 +142,7 @@ def main() -> None:
         "subject": "Approve Execute test",
         "body": "offline approve and execute body",
     })
-    blocked2 = gateway._governance_blocked("reasoning", dict(payload2))
+    blocked2 = gateway._governance_blocked("agent-a", dict(payload2))
     approval_id2 = blocked2.get("approval_id")
     if not approval_id2:
         raise SystemExit(f"approve-and-execute request did not create approval: {blocked2}")
@@ -150,7 +150,7 @@ def main() -> None:
     fake_session2 = FakeSession()
     setattr(gateway, "_session", lambda profile, route=None: fake_session2)
     auto_result = gateway._approval_approve_and_execute(
-        "reasoning",
+        "agent-a",
         {
             "approval_admin_secret": "approval-test-secret",
             "approval_id": approval_id2,
@@ -177,14 +177,14 @@ def main() -> None:
         "body": "offline expired body",
     })
     setattr(gateway, "APPROVAL_DEFAULT_TTL_SECONDS", -1)
-    blocked3 = gateway._governance_blocked("reasoning", dict(payload3))
+    blocked3 = gateway._governance_blocked("agent-a", dict(payload3))
     approval_id3 = blocked3.get("approval_id")
     expired = gateway._approval_state().get(approval_id3, {})
     if expired.get("state") != "expired":
         raise SystemExit(f"expired approval did not render as expired: {expired}")
     try:
         gateway._approval_approve_and_execute(
-            "reasoning",
+            "agent-a",
             {"approval_admin_secret": "approval-test-secret", "approval_id": approval_id3, "approver": "legacy_admin"},
         )
     except ValueError:
@@ -200,7 +200,7 @@ def main() -> None:
         "subject": "Telegram callback test",
         "body": "offline telegram body",
     })
-    blocked4 = gateway._governance_blocked("reasoning", dict(payload4))
+    blocked4 = gateway._governance_blocked("agent-a", dict(payload4))
     approval_id4 = blocked4.get("approval_id")
     fake_session4 = FakeSession()
     setattr(gateway, "_session", lambda profile, route=None: fake_session4)

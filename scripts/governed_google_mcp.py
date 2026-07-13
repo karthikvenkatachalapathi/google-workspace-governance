@@ -8,9 +8,9 @@ gateway and audited there.
 
 Transport modes:
 - stdio (default): bridge mode for local MCP clients.
-- streamable-http: remote/local HTTP MCP mode so Hermes only needs a URL plus
+- streamable-http: remote/local HTTP MCP mode so agent runtime only needs a URL plus
   GOOGLE_GOVERNANCE_ACCESS_TOKEN; no local wrapper file is required on the
-  Hermes host.
+  agent host.
 
 Safety model:
 - Read/bounded update operations route to the gateway.
@@ -196,7 +196,7 @@ def active_profile() -> str:
                 profile_from_token = scope.split(":", 1)[1].strip()
                 if profile_from_token and profile_from_token != "*":
                     return profile_from_token
-    profile = os.getenv("GOOGLE_GOVERNANCE_PROFILE") or os.getenv("HERMES_GOOGLE_GOVERNANCE_PROFILE") or os.getenv("HERMES_PROFILE")
+    profile = os.getenv("GOOGLE_GOVERNANCE_PROFILE") or os.getenv("AGENT_GOOGLE_GOVERNANCE_PROFILE") or os.getenv("HERMES_PROFILE")
     if profile:
         return profile
     profile_home = os.getenv("GOOGLE_GOVERNANCE_PROFILE_HOME") or os.getenv("HERMES_HOME", "")
@@ -204,7 +204,7 @@ def active_profile() -> str:
         name = Path(profile_home).name
         if name in PROFILE_DEFAULTS:
             return name
-    return "reasoning"
+    return "agent-a"
 
 
 def default_token_route(profile: str) -> str | None:
@@ -212,7 +212,7 @@ def default_token_route(profile: str) -> str | None:
 
     Do not bake profile-to-account assumptions into the MCP wrapper.  The
     gateway owns profile/account route resolution, and every tool also accepts
-    an explicit `token_route` such as `airbnb/rani_gmail`.
+    an explicit `token_route` such as `agent-b/rani_gmail`.
     """
     return os.getenv("GOOGLE_GOVERNANCE_TOKEN_ROUTE") or os.getenv("HERMES_GOOGLE_GOVERNANCE_TOKEN_ROUTE")
 
@@ -224,7 +224,7 @@ def api_access_token() -> str | None:
     filesystem. Governance policy is API-token/token-exchange auth only, even
     for same-host clients.
     """
-    token = os.getenv("GOOGLE_GOVERNANCE_ACCESS_TOKEN") or os.getenv("HERMES_GOOGLE_GOVERNANCE_ACCESS_TOKEN")
+    token = os.getenv("GOOGLE_GOVERNANCE_ACCESS_TOKEN") or os.getenv("AGENT_GOOGLE_GOVERNANCE_ACCESS_TOKEN")
     return token.strip() if token and token.strip() else None
 
 
@@ -237,7 +237,7 @@ def auth_header(profile: str) -> str:
         return f"Bearer {token}"
     raise RuntimeError(
         "Google Governance auth requires GOOGLE_GOVERNANCE_ACCESS_TOKEN "
-        "or HERMES_GOOGLE_GOVERNANCE_ACCESS_TOKEN; filesystem JWT signing is disabled"
+        "or AGENT_GOOGLE_GOVERNANCE_ACCESS_TOKEN; filesystem JWT signing is disabled"
     )
 
 

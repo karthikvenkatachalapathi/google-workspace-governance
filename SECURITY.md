@@ -1,13 +1,3 @@
----
-Date Created: 07/09/2026 14:45
-Last Updated Date: 07/09/2026 14:45
-Last Updated by: Hermione
-Update Changelog: Updated metadata headers and enforced required fields.
----
-
-
-
-
 # Security and publishing checklist
 
 Use this checklist before pushing the project to a public GitHub repository and before deploying it for real Google Workspace use.

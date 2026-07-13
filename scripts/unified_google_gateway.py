@@ -69,24 +69,24 @@ DEFAULT_SCOPES = [
 ]
 
 PROFILE_CONFIG: dict[str, dict[str, Any]] = {
-    "reasoning": {
-        "persona": "Dumbledore",
+    "agent-a": {
+        "persona": "AgentA",
         "legacy_audience": "dumbledore-google-governance-gateway",
-        "unified_audience": "hermes-google-governance",
+        "unified_audience": "google-workspace-governance",
         "service_name": "dumbledore-google-governance-gateway",
         "generic_google_request": False,
     },
-    "daily-assistant": {
-        "persona": "Hagrid",
+    "agent-c": {
+        "persona": "AgentB",
         "legacy_audience": "hagrid-google-governance-gateway",
-        "unified_audience": "hermes-google-governance",
+        "unified_audience": "google-workspace-governance",
         "service_name": "hagrid-google-governance-gateway",
         "generic_google_request": False,
     },
-    "airbnb": {
-        "persona": "Hedwig",
+    "agent-b": {
+        "persona": "AgentC",
         "legacy_audience": "hedwig-google-governance-gateway",
-        "unified_audience": "hermes-google-governance",
+        "unified_audience": "google-workspace-governance",
         "service_name": "hedwig-google-governance-gateway",
         "generic_google_request": False,
     },
@@ -138,18 +138,18 @@ def _metrics_text() -> str:
         latency_sum_rows = list(_LATENCY_SUM_MS.items())
         latency_count_rows = list(_LATENCY_COUNT.items())
     lines = [
-        "# HELP hermes_google_governance_up Unified Google governance gateway health (1 = up).",
-        "# TYPE hermes_google_governance_up gauge",
-        "hermes_google_governance_up 1",
-        "# HELP hermes_google_governance_start_time_seconds Unix start time of the unified Google governance gateway.",
-        "# TYPE hermes_google_governance_start_time_seconds gauge",
-        f"hermes_google_governance_start_time_seconds {START_TIME:.0f}",
-        "# HELP hermes_google_governance_audit_events_total Audit events emitted by profile/action/status/decision.",
-        "# TYPE hermes_google_governance_audit_events_total counter",
+        "# HELP google_workspace_governance_up Unified Google governance gateway health (1 = up).",
+        "# TYPE google_workspace_governance_up gauge",
+        "google_workspace_governance_up 1",
+        "# HELP google_workspace_governance_start_time_seconds Unix start time of the unified Google governance gateway.",
+        "# TYPE google_workspace_governance_start_time_seconds gauge",
+        f"google_workspace_governance_start_time_seconds {START_TIME:.0f}",
+        "# HELP google_workspace_governance_audit_events_total Audit events emitted by profile/action/status/decision.",
+        "# TYPE google_workspace_governance_audit_events_total counter",
     ]
     for (profile, action, status, decision), count in sorted(rows):
         lines.append(
-            'hermes_google_governance_audit_events_total{'
+            'google_workspace_governance_audit_events_total{'
             f'profile="{_prom_label(profile)}",'
             f'action="{_prom_label(action)}",'
             f'status="{_prom_label(status)}",'
@@ -157,12 +157,12 @@ def _metrics_text() -> str:
             f'}} {count}'
         )
     lines.extend([
-        "# HELP hermes_google_governance_request_latency_ms_sum Total observed request latency in milliseconds by profile/action/status/decision.",
-        "# TYPE hermes_google_governance_request_latency_ms_sum counter",
+        "# HELP google_workspace_governance_request_latency_ms_sum Total observed request latency in milliseconds by profile/action/status/decision.",
+        "# TYPE google_workspace_governance_request_latency_ms_sum counter",
     ])
     for (profile, action, status, decision), value in sorted(latency_sum_rows):
         lines.append(
-            'hermes_google_governance_request_latency_ms_sum{'
+            'google_workspace_governance_request_latency_ms_sum{'
             f'profile="{_prom_label(profile)}",'
             f'action="{_prom_label(action)}",'
             f'status="{_prom_label(status)}",'
@@ -170,12 +170,12 @@ def _metrics_text() -> str:
             f'}} {float(value):.3f}'
         )
     lines.extend([
-        "# HELP hermes_google_governance_request_latency_ms_count Count of latency observations by profile/action/status/decision.",
-        "# TYPE hermes_google_governance_request_latency_ms_count counter",
+        "# HELP google_workspace_governance_request_latency_ms_count Count of latency observations by profile/action/status/decision.",
+        "# TYPE google_workspace_governance_request_latency_ms_count counter",
     ])
     for (profile, action, status, decision), count in sorted(latency_count_rows):
         lines.append(
-            'hermes_google_governance_request_latency_ms_count{'
+            'google_workspace_governance_request_latency_ms_count{'
             f'profile="{_prom_label(profile)}",'
             f'action="{_prom_label(action)}",'
             f'status="{_prom_label(status)}",'
@@ -588,7 +588,7 @@ def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]],
         raise PermissionError("invalid telegram approval token")
     actor = str(((callback.get("from") or {}).get("username")) or ((callback.get("from") or {}).get("id")) or "telegram-channel")
     try:
-        approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "reasoning")
+        approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "agent-a")
         if decision == "approve_once":
             result = _approval_approve_and_execute(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "approver": actor, "reason": "Telegram Approve & Execute"})
             _telegram_callback_response(bot_token, callback_id, "Approved and executed")
@@ -881,7 +881,7 @@ def _telegram_decide_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
     expected = _approval_decision_token(approval_id, decision)
     if not expected or not token or not hmac.compare_digest(expected, token):
         raise PermissionError("invalid approval token")
-    approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "reasoning")
+    approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "agent-a")
     if decision == "approve_once":
         return _approval_approve_and_execute(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "approver": "telegram-channel", "reason": "Telegram Approve & Execute"})
     return _approval_decide(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "decision": decision, "approver": "telegram-channel"})
@@ -992,7 +992,7 @@ def _route_lookup_key(value: str | None) -> str:
 def _workspace_token_id_for_name(value: str | None) -> str | None:
     """Resolve a human token/account name to the active SQLite workspace token id.
 
-    The Control UI exposes user-facing token names such as "Mom Gmail". Agents
+    The Control UI exposes user-facing token names such as "Shared Workspace". Agents
     should be able to pass that exact name as token_route; hard-coded account
     aliases are only a fallback because the operator may revoke/recreate tokens with
     new names.
@@ -2243,7 +2243,7 @@ ROUTES = {
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HermesGoogleGovernance/3.0"
+    server_version = "AgentGoogleGovernance/3.0"
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -2252,7 +2252,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/healthz":
-            _json_response(self, 200, {"status": "ok", "service": "hermes-google-governance", "profiles": sorted(PROFILE_CONFIG), "token_root": str(TOKEN_ROOT), "token_db": str(TOKEN_DB_PATH)})
+            _json_response(self, 200, {"status": "ok", "service": "google-workspace-governance", "profiles": sorted(PROFILE_CONFIG), "token_root": str(TOKEN_ROOT), "token_db": str(TOKEN_DB_PATH)})
         elif path == "/metrics":
             _text_response(self, 200, _metrics_text(), "text/plain; version=0.0.4; charset=utf-8")
         elif path == "/v1/governance/approvals/telegram-decide":
@@ -2327,7 +2327,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
     _audit("gateway", "service.start", "ok", host=HOST, port=PORT, profiles=sorted(PROFILE_CONFIG))
-    print(f"Unified Hermes Google governance gateway listening on {HOST}:{PORT}", flush=True)
+    print(f"Unified Google Workspace governance gateway listening on {HOST}:{PORT}", flush=True)
     server.serve_forever()
 
 

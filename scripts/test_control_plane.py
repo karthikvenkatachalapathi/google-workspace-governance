@@ -35,7 +35,7 @@ def main() -> None:
     gateway_audit = tmp / "unified-audit.jsonl"
     token_root = tmp / "tokens"
     oauth_root = tmp / "oauth"
-    token_file = token_root / "accounts" / "personal_workspace" / "google_token.json"
+    token_file = token_root / "accounts" / "workspace_primary" / "google_token.json"
     token_file.parent.mkdir(parents=True)
     token_file.write_text(json.dumps({"client_id": "test-client", "refresh_token": "refresh", "scopes": ["gmail", "drive"]}), encoding="utf-8")
     gateway_audit.write_text(
@@ -55,12 +55,12 @@ unknown_resource_default: ask
 operation_classes: {}
 profile_policy:
   operations:
-    account_alias: personal_workspace
+    account_alias: workspace_primary
     defaults:
       gmail.search: allow
     resource_overrides: {}
   assistant:
-    account_alias: personal_workspace
+    account_alias: workspace_primary
     defaults:
       drive.share: deny
     resource_overrides:
@@ -83,7 +83,7 @@ resources:
   drive_any:
     title_hint: Any Drive file
     type: drive
-    account_alias: personal_workspace
+    account_alias: workspace_primary
     sensitivity: high
     profile_scope: [assistant]
     allowed_operations: [share]
@@ -232,7 +232,7 @@ resources:
         raise SystemExit(f"bad snapshot: {snap}")
     if snap["access_log"][0].get("request_id") != "req-test":
         raise SystemExit(f"bad access log snapshot: {snap['access_log']}")
-    if len(snap["access_log"]) != 1 or snap["access_log"][0].get("token_route") != "assistant/personal_workspace":
+    if len(snap["access_log"]) != 1 or snap["access_log"][0].get("token_route") != "assistant/workspace_primary":
         raise SystemExit(f"access log did not consolidate and resolve ACL route: {snap['access_log']}")
     if snap["access_log"][0].get("_count") != 2 or "2 Google Workspace requests" not in snap["access_log"][0].get("actual_access", ""):
         raise SystemExit(f"access log did not summarize duplicate timestamp/profile/route rows: {snap['access_log']}")
@@ -314,7 +314,7 @@ resources:
     if len(inventory.get("items", [])) != 1 or not inventory["items"][0]["has_refresh_token"]:
         raise SystemExit(f"bad workspace access inventory: {inventory}")
     client_secret = {"installed": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"]}}
-    create_req = module._workspace_access_create_request({"account_alias": "personal_workspace", "client_secret_json": json.dumps(client_secret)}, "admin")
+    create_req = module._workspace_access_create_request({"account_alias": "workspace_primary", "client_secret_json": json.dumps(client_secret)}, "admin")
     if create_req.get("status") != "authorization_url_generated" or "authorization_url" not in create_req:
         raise SystemExit(f"bad workspace OAuth start: {create_req}")
     if "client_secret" in json.dumps(create_req):
@@ -325,15 +325,15 @@ resources:
         raise SystemExit(f"OAuth start did not request identity scopes for email discovery: {create_req.get('scopes')}")
     if module._oauth_account_alias("", "Example Account") != "example_account":
         raise SystemExit("friendly token label was not used as email-missing account alias fallback")
-    mapped = module._workspace_access_map_profiles({"token_id": "personal_workspace/google_token.json", "profiles": ["assistant"]}, "admin")
+    mapped = module._workspace_access_map_profiles({"token_id": "workspace_primary/google_token.json", "profiles": ["assistant"]}, "admin")
     if mapped.get("status") != "mapped" or mapped.get("profiles") != ["assistant"]:
         raise SystemExit(f"bad profile-token mapping result: {mapped}")
-    if mapped.get("routes", {}).get("assistant") != "assistant/personal_workspace":
+    if mapped.get("routes", {}).get("assistant") != "assistant/workspace_primary":
         raise SystemExit(f"profile-token mapping did not return the account route: {mapped}")
     mapped_snapshot = module._snapshot()
-    if not any(row["profile"] == "assistant" and row["action"] == "gmail.search_gmail_messages" and row.get("token_route") == "assistant/personal_workspace" for row in mapped_snapshot["rules"]):
+    if not any(row["profile"] == "assistant" and row["action"] == "gmail.search_gmail_messages" and row.get("token_route") == "assistant/workspace_primary" for row in mapped_snapshot["rules"]):
         raise SystemExit("profile-token mapping did not create profile-level Gmail ACL row")
-    if not any(route.get("profile") == "assistant" and route.get("route") == "assistant/personal_workspace" and route.get("account_alias") == "personal_workspace" for route in mapped_snapshot.get("workspace_routes", [])):
+    if not any(route.get("profile") == "assistant" and route.get("route") == "assistant/workspace_primary" and route.get("account_alias") == "workspace_primary" for route in mapped_snapshot.get("workspace_routes", [])):
         raise SystemExit(f"profile-token mapping did not expose workspace route inventory: {mapped_snapshot.get('workspace_routes')}")
 
     # google-auth is optional for the control plane token test; the stdlib refresh fallback should be used.
@@ -374,13 +374,13 @@ resources:
     runtime_policy = json.loads(runtime.read_text(encoding="utf-8"))
     if runtime_policy.get("mode") != "enforce" or runtime_policy.get("effective_behavior") != "acl_enforced":
         raise SystemExit("runtime policy not enforcing")
-    unmapped = module._workspace_access_unmap_profiles({"token_id": "personal_workspace/google_token.json", "profiles": ["assistant"]}, "admin")
+    unmapped = module._workspace_access_unmap_profiles({"token_id": "workspace_primary/google_token.json", "profiles": ["assistant"]}, "admin")
     if unmapped.get("status") != "unmapped" or unmapped.get("profiles") != ["assistant"]:
         raise SystemExit(f"bad profile-token unmapping result: {unmapped}")
     after_unmap = module._snapshot()
-    if any(route.get("profile") == "assistant" and route.get("account_alias") == "personal_workspace" for route in after_unmap.get("workspace_routes", [])):
+    if any(route.get("profile") == "assistant" and route.get("account_alias") == "workspace_primary" for route in after_unmap.get("workspace_routes", [])):
         raise SystemExit("profile-token unmapping did not revoke the route relationship")
-    if any(row.get("profile") == "assistant" and row.get("account_alias") == "personal_workspace" for row in after_unmap.get("rules", [])):
+    if any(row.get("profile") == "assistant" and row.get("account_alias") == "workspace_primary" for row in after_unmap.get("rules", [])):
         raise SystemExit("profile-token unmapping did not remove Workspace ACL rows for the revoked profile")
     module._store_workspace_token(
         "google-workspace",

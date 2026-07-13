@@ -1,26 +1,3 @@
----
-Date Created: 07/09/2026 14:45
-Last Updated Date: 07/09/2026 14:45
-Last Updated by: Hermione
-Update Changelog: Updated metadata headers and enforced required fields.
----
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Setup guide
 
 This guide is written for a fresh clone on a Linux machine. It covers native systemd installation, Google OAuth setup, route mapping, agent/MCP integration, verification, and update commands.
@@ -140,7 +117,7 @@ In the control UI:
 
 1. Go to **Admin settings → Google Workspace → Configure new workspace**.
 2. Upload or paste the Google OAuth Desktop App `client_secret.json`.
-3. Give the account a human-friendly token label, for example `personal-primary` or `business-airbnb`.
+3. Give the account a human-friendly token label, for example `workspace-primary` or `workspace-shared`.
 4. Generate the authorization URL.
 5. Complete Google consent.
 6. Paste the redirect URL or authorization code back into the UI.
@@ -162,11 +139,11 @@ Map real agent profile slugs to connected Google accounts. Route format:
 Examples:
 
 ```text
-reasoning/personal-primary
-reasoning/business-airbnb
-daily-assistant/personal-primary
-airbnb/business-airbnb
-librarian/personal-primary
+agent-a/workspace-primary
+agent-a/business-agent-b
+agent-c/workspace-primary
+agent-b/workspace-shared
+support-bot/workspace-primary
 ```
 
 A profile can have multiple routes. This is useful when one agent needs access to both a personal account and a business account, but with separate policy boundaries.
@@ -218,8 +195,8 @@ Example MCP configuration:
       "args": ["/path/to/google-workspace-governance-gateway/.google-governance/runtime/governed_google_mcp.py"],
       "env": {
         "GOOGLE_GOVERNANCE_URL": "http://127.0.0.1:8768",
-        "GOOGLE_GOVERNANCE_PROFILE": "reasoning",
-        "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "reasoning/personal-primary",
+        "GOOGLE_GOVERNANCE_PROFILE": "agent-a",
+        "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "agent-a/workspace-primary",
         "GOOGLE_GOVERNANCE_ACCESS_TOKEN": "paste-ui-generated-token-here"
       }
     }
@@ -232,8 +209,8 @@ Environment variables:
 | Variable | Meaning |
 |---|---|
 | `GOOGLE_GOVERNANCE_URL` | Gateway API URL, usually `http://127.0.0.1:8768` |
-| `GOOGLE_GOVERNANCE_PROFILE` | Calling profile identity, e.g. `reasoning` |
-| `GOOGLE_GOVERNANCE_TOKEN_ROUTE` | Optional default route, e.g. `reasoning/personal-primary` |
+| `GOOGLE_GOVERNANCE_PROFILE` | Calling profile identity, e.g. `agent-a` |
+| `GOOGLE_GOVERNANCE_TOKEN_ROUTE` | Optional default route, e.g. `agent-a/workspace-primary` |
 | `GOOGLE_GOVERNANCE_ACCESS_TOKEN` | API bearer token generated in **Admin settings → Runtime**; clients never read server-side secret files |
 
 Each MCP tool also accepts a `token_route` argument. Use it when a profile has more than one mapped Google account route.
@@ -342,7 +319,7 @@ Check that:
 
 - The MCP host has `GOOGLE_GOVERNANCE_ACCESS_TOKEN` from the control UI Runtime page.
 - The profile in `GOOGLE_GOVERNANCE_PROFILE` matches a profile configured in the UI.
-- The token route profile prefix matches the profile, e.g. `reasoning/personal-primary` for `reasoning`.
+- The token route profile prefix matches the profile, e.g. `agent-a/workspace-primary` for `agent-a`.
 
 ### Google consent succeeds but email is missing
 
