@@ -1,0 +1,460 @@
+schema_version: 2
+mode: enforce
+policy_shape: profile_first
+account_aliases:
+  personal_workspace:
+    google_account_hint: karthiktanya2021@gmail.com
+    verification_status: connected
+    current_profile_routes:
+      reasoning: reasoning/personal_workspace
+      daily-assistant: daily-assistant/personal_workspace
+    token_namespace: tokens/accounts/personal-workspace/
+  business_workspace:
+    google_account_hint: business.karthikvenkat@gmail.com
+    verification_status: connected
+    current_profile_routes: {}
+    token_namespace: tokens/accounts/business-workspace/
+  kochuraninellikkattil:
+    google_account_hint: kochuraninellikkattil@gmail.com
+    verification_status: connected_from_control_ui
+    phase3_token_namespace: tokens/accounts/kochuraninellikkattil/
+    current_profile_routes: {}
+    token_namespace: tokens/accounts/kochuraninellikkattil/
+  business-airbnb:
+    google_account_hint: business.karthikvenkat@gmail.com
+    verification_status: connected_from_control_ui
+    token_namespace: tokens/accounts/business-airbnb/
+    current_profile_routes:
+      airbnb: airbnb/business-airbnb
+  personal-primary:
+    google_account_hint: karthiktanya2021@gmail.com
+    verification_status: connected_from_control_ui
+    token_namespace: tokens/accounts/personal-primary/
+    current_profile_routes:
+      airbnb: airbnb/personal-primary
+profiles:
+  default:
+    account_alias: personal_workspace
+    current_route_aliases:
+      default: default/personal_workspace
+    default_resource_scope:
+    - drive_any
+    notes: Example Hermes default profile actor.
+  reasoning:
+    account_alias: personal_workspace
+    current_route_aliases:
+      default: reasoning/personal_workspace
+    default_resource_scope:
+    - gmail_inbox
+    - calendar_primary
+    - drive_any
+    - sheet_example_tracker
+    - docs_example_template
+    notes: Example Hermes reasoning/strategy profile actor.
+  daily-assistant:
+    account_alias: personal_workspace
+    current_route_aliases:
+      default: daily-assistant/personal_workspace
+    default_resource_scope:
+    - gmail_inbox
+    - calendar_primary
+    - drive_any
+    notes: Example Hermes daily-assistant profile actor.
+  airbnb:
+    account_alias: business_workspace
+    current_route_aliases:
+      default: airbnb/business_workspace
+    default_resource_scope:
+    - contacts_business-airbnb
+    - drive_business-airbnb_workspace
+    - calendar_business-airbnb_primary
+    - docs_business-airbnb_workspace
+    - gmail_business-airbnb
+    - sheets_business-airbnb_workspace
+    - contacts_personal-primary
+    - drive_personal-primary_workspace
+    - calendar_personal-primary_primary
+    - docs_personal-primary_workspace
+    - gmail_personal-primary
+    - sheets_personal-primary_workspace
+    notes: Example Hermes Airbnb operations profile actor.
+  librarian:
+    account_alias: personal_workspace
+    current_route_aliases:
+      default: librarian/personal_workspace
+    default_resource_scope:
+    - drive_any
+    notes: Example Hermes librarian/research profile actor.
+resources:
+  gmail_inbox:
+    type: gmail_mailbox
+    title_hint: Personal Gmail inbox
+    account_alias: personal_workspace
+    sensitivity: personal
+    profile_scope:
+    - reasoning
+    - daily-assistant
+    allowed_read_patterns:
+    - bounded_search
+    - requested_attachment_listing
+    notes: Do not persist message bodies in audit logs.
+  gmail_business:
+    type: gmail_mailbox
+    title_hint: Business Gmail inbox
+    account_alias: business_workspace
+    sensitivity: business
+    profile_scope: []
+    allowed_read_patterns:
+    - bounded_search
+    - requested_attachment_listing
+  calendar_primary:
+    type: calendar
+    title_hint: Primary calendar
+    account_alias: personal_workspace
+    calendar_id: primary
+    sensitivity: personal
+    profile_scope:
+    - reasoning
+    - daily-assistant
+    allowed_windows:
+    - today
+    - tomorrow
+    - bounded_user_requested_window
+  calendar_business_primary:
+    type: calendar
+    title_hint: Business primary calendar
+    account_alias: business_workspace
+    calendar_id: primary
+    sensitivity: business
+    profile_scope: []
+  sheet_example_tracker:
+    type: spreadsheet
+    account_alias: personal_workspace
+    spreadsheet_id: replace-with-google-sheet-id
+    title_hint: Example tracker sheet
+    profile_scope:
+    - reasoning
+    allowed_ranges:
+    - Tracker!A:Z
+    allowed_operations:
+    - sheets.get
+    - sheets.update
+    - sheets.append
+    sensitivity: private
+  docs_example_template:
+    type: document
+    account_alias: personal_workspace
+    document_id: replace-with-google-doc-id
+    title_hint: Example document template
+    profile_scope:
+    - reasoning
+    allowed_operations:
+    - docs.get
+    - drive.get
+    - drive.download
+    sensitivity: private
+  drive_any:
+    type: drive_scope
+    title_hint: Any Google Drive item (approval-only)
+    account_alias: any
+    drive_id: wildcard
+    sensitivity: high
+    profile_scope: []
+    allowed_operations: []
+    notes: Broad Drive access should remain ask/deny unless explicitly reviewed.
+  contacts_kochuraninellikkattil:
+    resource_alias: contacts_kochuraninellikkattil
+    type: contacts
+    title_hint: Google Workspace Contacts - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - contacts.search
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope: []
+  drive_kochuraninellikkattil_workspace:
+    resource_alias: drive_kochuraninellikkattil_workspace
+    type: drive_workspace
+    title_hint: Google Workspace Drive - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - drive.search
+    - drive.get
+    - drive.download
+    - drive.copy
+    - drive.create
+    - drive.update
+    - drive.share
+    - drive.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope: []
+  gmail_kochuraninellikkattil:
+    resource_alias: gmail_kochuraninellikkattil
+    type: gmail_mailbox
+    title_hint: Google Workspace Gmail - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - gmail.search
+    - gmail.attachments.list
+    - gmail.draft
+    - gmail.send
+    - gmail.modify
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope: []
+  sheets_kochuraninellikkattil_workspace:
+    resource_alias: sheets_kochuraninellikkattil_workspace
+    type: spreadsheet_workspace
+    title_hint: Google Workspace Sheets - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - sheets.get
+    - sheets.update
+    - sheets.append
+    - sheets.batch_update
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope: []
+  calendar_kochuraninellikkattil_primary:
+    resource_alias: calendar_kochuraninellikkattil_primary
+    type: calendar
+    title_hint: Google Workspace primary calendar - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - calendar.list
+    - calendar.get
+    - calendar.freebusy
+    - calendar.create
+    - calendar.update
+    - calendar.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    calendar_id: primary
+    profile_scope: []
+  docs_kochuraninellikkattil_workspace:
+    resource_alias: docs_kochuraninellikkattil_workspace
+    type: document_workspace
+    title_hint: Google Workspace Docs - kochuraninellikkattil@gmail.com
+    account_alias: kochuraninellikkattil
+    sensitivity: private
+    allowed_operations:
+    - docs.get
+    - docs.create
+    - docs.update
+    - docs.append
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope: []
+  contacts_business-airbnb:
+    resource_alias: contacts_business-airbnb
+    type: contacts
+    title_hint: Google Workspace Contacts - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - contacts.search
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  drive_business-airbnb_workspace:
+    resource_alias: drive_business-airbnb_workspace
+    type: drive_workspace
+    title_hint: Google Workspace Drive - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - drive.search
+    - drive.get
+    - drive.download
+    - drive.copy
+    - drive.create
+    - drive.update
+    - drive.share
+    - drive.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  calendar_business-airbnb_primary:
+    resource_alias: calendar_business-airbnb_primary
+    type: calendar
+    title_hint: Google Workspace primary calendar - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - calendar.list
+    - calendar.get
+    - calendar.freebusy
+    - calendar.create
+    - calendar.update
+    - calendar.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    calendar_id: primary
+    profile_scope:
+    - airbnb
+  docs_business-airbnb_workspace:
+    resource_alias: docs_business-airbnb_workspace
+    type: document_workspace
+    title_hint: Google Workspace Docs - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - docs.get
+    - docs.create
+    - docs.update
+    - docs.append
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  gmail_business-airbnb:
+    resource_alias: gmail_business-airbnb
+    type: gmail_mailbox
+    title_hint: Google Workspace Gmail - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - gmail.search
+    - gmail.attachments.list
+    - gmail.draft
+    - gmail.send
+    - gmail.modify
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  sheets_business-airbnb_workspace:
+    resource_alias: sheets_business-airbnb_workspace
+    type: spreadsheet_workspace
+    title_hint: Google Workspace Sheets - business.karthikvenkat@gmail.com
+    account_alias: business-airbnb
+    sensitivity: private
+    allowed_operations:
+    - sheets.get
+    - sheets.update
+    - sheets.append
+    - sheets.batch_update
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  contacts_personal-primary:
+    resource_alias: contacts_personal-primary
+    type: contacts
+    title_hint: Google Workspace Contacts - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - contacts.search
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  drive_personal-primary_workspace:
+    resource_alias: drive_personal-primary_workspace
+    type: drive_workspace
+    title_hint: Google Workspace Drive - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - drive.search
+    - drive.get
+    - drive.download
+    - drive.copy
+    - drive.create
+    - drive.update
+    - drive.share
+    - drive.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  calendar_personal-primary_primary:
+    resource_alias: calendar_personal-primary_primary
+    type: calendar
+    title_hint: Google Workspace primary calendar - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - calendar.list
+    - calendar.get
+    - calendar.freebusy
+    - calendar.create
+    - calendar.update
+    - calendar.delete
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    calendar_id: primary
+    profile_scope:
+    - airbnb
+  docs_personal-primary_workspace:
+    resource_alias: docs_personal-primary_workspace
+    type: document_workspace
+    title_hint: Google Workspace Docs - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - docs.get
+    - docs.create
+    - docs.update
+    - docs.append
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  gmail_personal-primary:
+    resource_alias: gmail_personal-primary
+    type: gmail_mailbox
+    title_hint: Google Workspace Gmail - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - gmail.search
+    - gmail.attachments.list
+    - gmail.draft
+    - gmail.send
+    - gmail.modify
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+  sheets_personal-primary_workspace:
+    resource_alias: sheets_personal-primary_workspace
+    type: spreadsheet_workspace
+    title_hint: Google Workspace Sheets - karthiktanya2021@gmail.com
+    account_alias: personal-primary
+    sensitivity: private
+    allowed_operations:
+    - sheets.get
+    - sheets.update
+    - sheets.append
+    - sheets.batch_update
+    notes: Auto-created when the Google Workspace account was connected from the control
+      UI. Review ACL decisions before broad use.
+    profile_scope:
+    - airbnb
+operation_risk:
+  gmail.search: medium
+  gmail.get: medium
+  gmail.draft: medium
+  gmail.send: high
+  calendar.list: low
+  calendar.update: medium
+  drive.search: high
+  drive.get: high
+  drive.share: critical
+  drive.delete: critical
+  sheets.get: medium
+  sheets.update: medium
+  sheets.append: medium
+  docs.get: medium
+  docs.update: medium
+  contacts.search: medium

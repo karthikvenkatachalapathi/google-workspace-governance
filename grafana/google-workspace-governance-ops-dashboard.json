@@ -1,0 +1,4610 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+        },
+        "enable": true,
+        "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |= \"service.start\"",
+        "iconColor": "orange",
+        "name": "Gateway restarts"
+      },
+      {
+        "name": "Deployments / runtime applies",
+        "datasource": {
+          "type": "loki",
+          "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+        },
+        "enable": true,
+        "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(deploy|runtime apply|restart|version|configuration change)\"",
+        "iconColor": "blue"
+      },
+      {
+        "name": "Governance / ACL changes",
+        "datasource": {
+          "type": "loki",
+          "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+        },
+        "enable": true,
+        "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(acl|policy|rule|scope|profile assignment|oauth|token revoke)\"",
+        "iconColor": "purple"
+      },
+      {
+        "name": "Incidents / emergency overrides",
+        "datasource": {
+          "type": "loki",
+          "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+        },
+        "enable": true,
+        "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(incident|emergency|override|break.?glass|critical)\"",
+        "iconColor": "red"
+      }
+    ]
+  },
+  "description": "Operations console for Google Workspace Governance Gateway. Uses Prometheus for health/metrics and Loki for exact audit/system events. Some panels require richer gateway metrics and working Promtail JSONL ingestion.",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": 158,
+  "links": [
+    {
+      "targetBlank": true,
+      "title": "Control UI",
+      "url": "http://192.168.2.107:8095/"
+    },
+    {
+      "targetBlank": true,
+      "title": "Loki Explore: governance logs",
+      "url": "/explore"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "1. Gateway Health",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "1 means the gateway metrics endpoint is alive.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "hermes_google_governance_up",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Gateway Up",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "time() - hermes_google_governance_start_time_seconds",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "up{job=\"hermes-google-governance\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Prometheus Target",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total)) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Audit Events",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{status=~\"error|failed|denied|unauthorized\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Error Events",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "Placeholder until gateway exports build/version info metric.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "vector(1)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Gateway Build/Version",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[5m]))) or vector(0)",
+          "instant": false,
+          "legendFormat": "requests/sec",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP / governed request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "P50/P95/P99 require histogram buckets; current gateway exports sum/count only.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(hermes_google_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
+          "instant": false,
+          "legendFormat": "avg ms",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Latency avg from gateway metrics",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "Node exporter metrics are not present for this deployment; this panel now shows scrape health instead of host CPU/memory/disk.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "max(hermes_google_governance_up) or vector(0)",
+          "instant": false,
+          "legendFormat": "gateway_health",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "max(up{job=\"hermes-google-governance\"}) or vector(0)",
+          "instant": false,
+          "legendFormat": "prometheus_scrape_up",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "sum(hermes_google_governance_audit_events_total) or vector(0)",
+          "instant": false,
+          "legendFormat": "audit_events_total",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Gateway scrape health",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "Replaces unavailable host network counters with governance audit event activity.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "sum(increase(hermes_google_governance_audit_events_total[5m])) or vector(0)",
+          "instant": false,
+          "legendFormat": "events_5m",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "sum(rate(hermes_google_governance_audit_events_total[5m])) or vector(0)",
+          "instant": false,
+          "legendFormat": "events_per_second",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Gateway audit event trend",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 12,
+      "panels": [],
+      "title": "2. Authentication Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 21
+      },
+      "id": 13,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Unauthorized / auth failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 21
+      },
+      "id": 14,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"allow|would_allow\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Allowed",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 21
+      },
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"deny|would_deny|blocked\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Denied / blocked",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 21
+      },
+      "id": 16,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|would_ask|approval_required\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Ask / approval needed",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      },
+      "id": 17,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"unauthorized|auth_failed|jwt_failed|error\"}[5m])) by (status)) or vector(0)",
+          "instant": false,
+          "legendFormat": "{{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Authentication and authorization failures over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      },
+      "id": 18,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(jwt|signature|expired|unauthorized|auth|forbidden|invalid_token)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Auth/JWT/security log detail",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 19,
+      "panels": [],
+      "title": "3. Active Tokens / Token Lifecycle",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 33
+      },
+      "id": 20,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*token.*issued.*|.*token.*create.*\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Tokens issued today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 33
+      },
+      "id": 21,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Refresh failures",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 33
+      },
+      "id": 22,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*revoke.*\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Revocations today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "Needs a dedicated active-token exporter; raw JWT inventory should not be exposed in Prometheus labels.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 33
+      },
+      "id": 23,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Active JWT rows",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 37
+      },
+      "id": 24,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(token|jwt|refresh|revoked|expired|issued)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Token lifecycle events",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "id": 25,
+      "panels": [],
+      "title": "4. Google Workspace Access Activity",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "id": 26,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[5m])) by (status)) or vector(0)",
+          "instant": false,
+          "legendFormat": "{{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Workspace requests per minute by status",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "id": 27,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{profile=~\"$profile\"}[5m])) by (profile)) or vector(0)",
+          "instant": false,
+          "legendFormat": "{{profile}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Requests by profile",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "id": 28,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "sum by (profile, action, status, decision) (increase(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\",decision=~\"$decision\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Requests by action/outcome",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "id": 29,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} | json | profile=~\"$profile\" | action=~\"$action\" | status=~\"$status\" | decision=~\"$decision\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Every processed Google request \u2014 latest detail",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 30,
+      "panels": [],
+      "title": "5. Permission Escalation & Approval Requests",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 62
+      },
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Pending approvals",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 62
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*approval.*\",decision=~\"allow|approved\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Approved today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 62
+      },
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*approval.*\",decision=~\"deny|denied\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Denied today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 62
+      },
+      "id": 34,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(count(count by (profile) (hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"}))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Escalation profiles",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "id": 35,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(approval|permission|escalat|beyond|pending)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Permission escalation and approval requests",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "id": 36,
+      "panels": [],
+      "title": "6. ACL & Governance Events",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 75
+      },
+      "id": 37,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*acl.*|.*policy.*|.*governance.*\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "ACL changes today",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 75
+      },
+      "id": 38,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*policy.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Policy errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 79
+      },
+      "id": 39,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(acl|policy|rule|scope|profile assignment|runtime apply|workspace route)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "ACL/governance change log",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 87
+      },
+      "id": 40,
+      "panels": [],
+      "title": "7. Workspace Resource Usage",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never"
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 88
+      },
+      "id": 41,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"gmail.*\"}[5m]))) or vector(0)",
+          "instant": false,
+          "legendFormat": "Gmail",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"calendar.*\"}[5m]))) or vector(0)",
+          "instant": false,
+          "legendFormat": "Calendar",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"drive.*\"}[5m]))) or vector(0)",
+          "instant": false,
+          "legendFormat": "Drive",
+          "range": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\"docs.*|sheets.*|slides.*|people.*|contacts.*\"}[5m]))) or vector(0)",
+          "instant": false,
+          "legendFormat": "Docs/Sheets/People",
+          "range": true,
+          "refId": "D"
+        }
+      ],
+      "title": "Service usage trend from action names",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 96
+      },
+      "id": 42,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(topk(20, sum by (profile, action) (increase(hermes_google_governance_audit_events_total[$__range])))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Top profiles by Workspace usage",
+      "type": "table"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 104
+      },
+      "id": 43,
+      "panels": [],
+      "title": "8. Error Monitoring",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 105
+      },
+      "id": 44,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Errors last 24h",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 105
+      },
+      "id": 45,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*quota.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Rate-limit events",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 105
+      },
+      "id": 46,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*db.*|.*sqlite.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "DB/SQLite errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 105
+      },
+      "id": 47,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*file.*|.*runtime.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Filesystem errors",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 109
+      },
+      "id": 48,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(error|exception|traceback|failed|sqlite|database|rate limit|filesystem|jwt|unauthorized)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Gateway errors with stack/detail",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 118
+      },
+      "id": 49,
+      "panels": [],
+      "title": "9. System Logs",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 119
+      },
+      "id": 50,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit|hermes-google-governance-control-audit\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Live scrolling system/audit log",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 129
+      },
+      "id": 51,
+      "panels": [],
+      "title": "10. Security Dashboard / Operator Attention",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 130
+      },
+      "id": 52,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"denied|unauthorized|error|failed\",decision=~\"deny|would_deny|blocked|ask|approval_required\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Security events needing attention",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 130
+      },
+      "id": 53,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*unknown.*\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Unknown resources",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 130
+      },
+      "id": 54,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*send.*|.*delete.*|.*share.*|.*permission.*\"}[24h]))) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "High-risk attempts",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "description": "",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 135
+      },
+      "id": 55,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          },
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(security|audit|denied|blocked|unauthorized|unknown_resource|high_risk|approval|delete|send|share|permission)\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Security-focused event feed",
+      "type": "logs"
+    },
+    {
+      "id": 56,
+      "type": "row",
+      "title": "11. Security Dashboard \u2014 Anomalies & Abuse Detection",
+      "gridPos": {
+        "x": 0,
+        "y": 145,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 57,
+      "type": "stat",
+      "title": "Invalid JWT / signature attempts",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 146,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"invalid_jwt|jwt_failed|invalid_signature|unauthorized\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 58,
+      "type": "stat",
+      "title": "Replay attempts",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 146,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\",status=~\"denied|error|failed\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 59,
+      "type": "stat",
+      "title": "Expired/revoked token use",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 146,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"expired|revoked|invalid_token\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 60,
+      "type": "stat",
+      "title": "Permission abuse attempts",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 146,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{decision=~\"deny|blocked|would_deny\",action=~\".*delete.*|.*send.*|.*share.*|.*permission.*\",profile=~\"$profile\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 61,
+      "type": "timeseries",
+      "title": "Anomaly timeline: auth, replay, rate limits, abuse",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 150,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Auth/JWT failures"
+        },
+        {
+          "refId": "B",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*replay.*|.*nonce.*\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Replay/nonce"
+        },
+        {
+          "refId": "C",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*quota.*\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Rate/quota"
+        },
+        {
+          "refId": "D",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{decision=~\"deny|blocked|would_deny\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Denied/blocked"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 62,
+      "type": "table",
+      "title": "Suspicious profiles / unknown clients",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 150,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(topk(20, sum by (profile, action, status, decision) (increase(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|error|denied|failed\",profile=~\"$profile\"}[$__range])))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 63,
+      "type": "logs",
+      "title": "Security event drilldown: JWT, replay, suspicious IP, unknown clients, token abuse",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 158,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(invalid jwt|jwt_failed|invalid signature|replay|nonce|suspicious|unknown client|unknown_resource|expired token|revoked token|rate limit|quota|permission|abuse|unauthorized|forbidden)\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 64,
+      "type": "row",
+      "title": "12. Operator Audit Log",
+      "gridPos": {
+        "x": 0,
+        "y": 167,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 65,
+      "type": "stat",
+      "title": "Operator actions today",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 168,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*operator.*|.*acl.*|.*policy.*|.*oauth.*|.*token.*|.*deploy.*\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 66,
+      "type": "stat",
+      "title": "Emergency overrides",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 168,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*emergency.*|.*override.*|.*break.*glass.*\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 67,
+      "type": "stat",
+      "title": "OAuth changes",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 168,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*oauth.*|.*workspace.*\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 68,
+      "type": "stat",
+      "title": "Deployment/config changes",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 168,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*deploy.*|.*config.*|.*runtime.*\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 69,
+      "type": "logs",
+      "title": "Operator audit: who / what / when / where / before / after",
+      "description": "Requires structured control audit fields for previous/new values to populate fully.",
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 172,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} | json | actor=~\"$operator\" |~ \"(?i)(login|logout|acl|policy|token revoke|configuration|oauth|deploy|emergency|override|before|after|previous|new)\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 70,
+      "type": "row",
+      "title": "13. Google API Performance",
+      "gridPos": {
+        "x": 0,
+        "y": 182,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 71,
+      "type": "timeseries",
+      "title": "Google API latency and error rate",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 183,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(hermes_google_governance_request_latency_ms_sum[5m])) / clamp_min(sum(rate(hermes_google_governance_request_latency_ms_count[5m])), 1)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Avg latency ms"
+        },
+        {
+          "refId": "B",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"error|failed\"}[5m])) / clamp_min(sum(rate(hermes_google_governance_audit_events_total[5m])), 0.001)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Failure ratio"
+        },
+        {
+          "refId": "C",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{status=~\"ok|success|allowed\"}[5m])) / clamp_min(sum(rate(hermes_google_governance_audit_events_total[5m])), 0.001)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Success ratio"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 72,
+      "type": "timeseries",
+      "title": "Quota, retry, and rate-limit events",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 183,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*quota.*\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Quota"
+        },
+        {
+          "refId": "B",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*retry.*\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Retries"
+        },
+        {
+          "refId": "C",
+          "expr": "(sum(rate(hermes_google_governance_audit_events_total{action=~\".*rate.*|.*limit.*\"}[5m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": true,
+          "instant": false,
+          "legendFormat": "Rate limits"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 73,
+      "type": "table",
+      "title": "Slowest / noisiest Google API calls by action",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 191,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(topk(25, sum by (action, profile, status) (increase(hermes_google_governance_audit_events_total{profile=~\"$profile\",action=~\"$action\",status=~\"$status\"}[$__range])))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "inspect": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 74,
+      "type": "logs",
+      "title": "Google API error drilldown",
+      "description": "",
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 191,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(google api|quota|rate limit|retry|timeout|latency|calendar|gmail|drive|docs|sheets|people|contacts|error)\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 75,
+      "type": "row",
+      "title": "14. Database Health",
+      "gridPos": {
+        "x": 0,
+        "y": 199,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 76,
+      "type": "stat",
+      "title": "Gateway uptime seconds",
+      "description": "Node filesystem metrics are not available; shows gateway uptime instead.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 200,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - hermes_google_governance_start_time_seconds",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 77,
+      "type": "stat",
+      "title": "Gateway scrape up %",
+      "description": "Node filesystem metrics are not available; shows Prometheus scrape availability for the gateway.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 200,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * max(up{job=\"hermes-google-governance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "green",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 78,
+      "type": "stat",
+      "title": "SQLite/DB errors",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 200,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*sqlite.*|.*database.*|.*db.*\",status=~\"error|failed\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 79,
+      "type": "stat",
+      "title": "Backup/runtime events",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 200,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*backup.*|.*runtime.*\"}[24h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 80,
+      "type": "logs",
+      "title": "Database, WAL, backup, vacuum, filesystem events",
+      "description": "SQLite size/WAL/query latency/write latency require a dedicated DB exporter; this panel gives current log-backed visibility.",
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 204,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(sqlite|database|control.sqlite|wal|vacuum|backup|readonly|disk|filesystem|permission denied)\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    },
+    {
+      "id": 81,
+      "type": "row",
+      "title": "15. Alerts & Operator Action Center",
+      "gridPos": {
+        "x": 0,
+        "y": 212,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 82,
+      "type": "stat",
+      "title": "CRITICAL: gateway unhealthy",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - max(hermes_google_governance_up)) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 83,
+      "type": "stat",
+      "title": "HIGH: auth failures",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{status=~\"unauthorized|invalid_jwt|jwt_failed|invalid_signature\"}[15m]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 84,
+      "type": "stat",
+      "title": "HIGH: pending approvals",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(hermes_google_governance_audit_events_total{decision=~\"ask|approval_required|pending\"})) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 85,
+      "type": "stat",
+      "title": "HIGH: token refresh failed",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*refresh.*\",status=~\"error|failed\"}[1h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 86,
+      "type": "stat",
+      "title": "MED: quota/rate limits",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(hermes_google_governance_audit_events_total{action=~\".*quota.*|.*rate.*|.*limit.*\"}[1h]))) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 87,
+      "type": "stat",
+      "title": "MED: gateway scrape unavailable",
+      "description": "Node disk metrics are not available; alert surrogate for gateway scrape unavailability.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 213,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "1 - max(up{job=\"hermes-google-governance\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+          },
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center"
+      }
+    },
+    {
+      "id": 88,
+      "type": "logs",
+      "title": "Actionable alerts only \u2014 investigate from here",
+      "description": "Primary operator triage feed. Use request_id variable in Explore/log search when populated.",
+      "datasource": {
+        "type": "loki",
+        "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 217,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=~\"google-workspace-governance-gateway-audit|google-workspace-governance-control-audit\"} |~ \"(?i)(critical|high|pending approval|refresh failed|quota|rate limit|gateway unhealthy|disk|database|unauthorized|invalid jwt|revoked|expired|operator attention)\"",
+          "datasource": {
+            "type": "loki",
+            "uid": "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none",
+        "sortOrder": "Descending"
+      }
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": [
+    "google-governance",
+    "workspace",
+    "security",
+    "operations",
+    "hermes"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "profile",
+        "query": "label_values(hermes_google_governance_audit_events_total, profile)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "action",
+        "query": "label_values(hermes_google_governance_audit_events_total, action)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "status",
+        "query": "label_values(hermes_google_governance_audit_events_total, status)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "decision",
+        "query": "label_values(hermes_google_governance_audit_events_total, decision)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "includeAll": true,
+        "multi": true,
+        "name": "host",
+        "query": "label_values(up{job=\"hermes-google-governance\"}, instance)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "name": "user",
+        "type": "custom",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "query": ".*",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "service",
+        "type": "custom",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "query": ".*",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "gateway_node",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "query": "label_values(up{job=\"hermes-google-governance\"}, instance)",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "environment",
+        "type": "custom",
+        "query": "prod,staging,dev",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "severity",
+        "type": "custom",
+        "query": "critical,high,medium,low,info",
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "operator",
+        "type": "custom",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
+        },
+        "query": ".*",
+        "includeAll": true,
+        "multi": true,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "request_id",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "Google Workspace Governance Gateway \u2014 Operations Console",
+  "uid": "google-workspace-governance-ops",
+  "version": 2
+}

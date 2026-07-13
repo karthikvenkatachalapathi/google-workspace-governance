@@ -1,0 +1,353 @@
+---
+Date Created: 07/09/2026 14:45
+Last Updated Date: 07/09/2026 14:45
+Last Updated by: Hermione
+Update Changelog: Updated metadata headers and enforced required fields.
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Setup guide
+
+This guide is written for a fresh clone on a Linux machine. It covers native systemd installation, Google OAuth setup, route mapping, agent/MCP integration, verification, and update commands.
+
+## Prerequisites
+
+- Linux host with systemd.
+- Python 3.11+ and `python3-venv` available.
+- `curl`, `bash`, and root/sudo access for service installation.
+- A Google Cloud project where you can create an OAuth Desktop App client.
+- Workspace APIs enabled for the services you want to use, for example Gmail, Calendar, Drive, Docs, Sheets, Slides, and People/Contacts.
+
+The installer creates a dedicated service user by default:
+
+```text
+google-workspace-gateway
+```
+
+The gateway API and control UI bind to localhost by default. Keep the gateway API private.
+
+## 1. Clone the repository
+
+```bash
+git clone <repo-url> google-workspace-governance-gateway
+cd google-workspace-governance-gateway
+```
+
+Review the example policy before installing:
+
+```bash
+less google-governance-policy.yaml
+less google-resource-registry.yaml
+```
+
+The included YAML is starter material. You will normally configure accounts, routes, and ACLs through the web UI after installation.
+
+## 2. Install natively with systemd
+
+```bash
+sudo PROJECT_DIR="$PWD" bash scripts/install_systemd.sh
+```
+
+Default paths are self-contained inside the clone:
+
+| Item | Default |
+|---|---|
+| State and token custody | `./.google-governance/state` |
+| SQLite DB | `./database/control.sqlite` |
+| Secrets/setup material | `./.google-governance/config` |
+| Logs | `./.google-governance/logs` |
+| Gateway API | `http://127.0.0.1:8768` |
+| Control UI | `http://127.0.0.1:8095` |
+| Gateway service | `google-workspace-governance.service` |
+| Control UI service | `google-workspace-governance-control.service` |
+| Service user | `google-workspace-gateway` |
+
+The only host-level artifacts created by the native installer are the two systemd unit files and the dedicated service user/group. Normal operation, OAuth custody, runtime policy, logs, backups, and UI state stay under the clone root (`./.google-governance/` plus `./database/`).
+
+Optional install overrides:
+
+```bash
+sudo PROJECT_DIR="$PWD" \
+  SELF_CONTAINED_DIR="$PWD/.google-governance" \
+  SERVICE_USER=google-workspace-gateway \
+  GOOGLE_GOVERNANCE_CONTROL_HOST=127.0.0.1 \
+  GOOGLE_GOVERNANCE_CONTROL_PORT=8095 \
+  GOOGLE_GOVERNANCE_PORT=8768 \
+  bash scripts/install_systemd.sh
+```
+
+Verify services:
+
+```bash
+sudo bash scripts/verify_systemd.sh
+curl -fsS http://127.0.0.1:8768/healthz
+curl -fsS http://127.0.0.1:8095/healthz
+```
+
+## 3. Create the first control-plane admin
+
+Open:
+
+```text
+http://localhost:8095/
+```
+
+Get the first-run setup token:
+
+```bash
+sudo cat .google-governance/config/control_setup_token
+```
+
+Use that token in the browser UI to create the first admin user. After this, routine operations happen through the UI.
+
+## 4. Create a Google OAuth Desktop App
+
+In Google Cloud Console:
+
+1. Create or choose a project.
+2. Configure the OAuth consent screen.
+3. Enable the Google APIs you want to govern:
+   - Gmail API
+   - Google Calendar API
+   - Google Drive API
+   - Google Docs API
+   - Google Sheets API
+   - Google Slides API
+   - People API / Contacts access
+4. Create OAuth credentials of type **Desktop App**.
+5. Download the `client_secret.json` file.
+
+Do not commit this file. The control UI lets you upload or paste it for the OAuth flow.
+
+## 5. Connect Google Workspace accounts in the UI
+
+In the control UI:
+
+1. Go to **Admin settings → Google Workspace → Configure new workspace**.
+2. Upload or paste the Google OAuth Desktop App `client_secret.json`.
+3. Give the account a human-friendly token label, for example `personal-primary` or `business-airbnb`.
+4. Generate the authorization URL.
+5. Complete Google consent.
+6. Paste the redirect URL or authorization code back into the UI.
+
+The gateway requests Workspace scopes plus identity scopes (`openid`, `email`, `profile`) so it can display the account email where Google provides it.
+
+The OAuth refresh token is stored in gateway-owned state, not in the agent profile.
+
+## 6. Map profiles to account routes
+
+Open **Admin settings → Google Workspace → Configure workspace routes**.
+
+Map real agent profile slugs to connected Google accounts. Route format:
+
+```text
+<profile>/<account-alias>
+```
+
+Examples:
+
+```text
+reasoning/personal-primary
+reasoning/business-airbnb
+daily-assistant/personal-primary
+airbnb/business-airbnb
+librarian/personal-primary
+```
+
+A profile can have multiple routes. This is useful when one agent needs access to both a personal account and a business account, but with separate policy boundaries.
+
+Connecting an account does not mean broad access. Policy still decides what each profile/account route may do.
+
+## 7. Configure ACL policy in the UI
+
+Open **ACL rules**.
+
+Each row represents a profile/action/service or profile/resource/action decision. Set the decision to:
+
+- `allow` — execute without approval.
+- `ask` — create or require an approval path.
+- `deny` — block.
+
+Recommended defaults for a new deployment:
+
+| Operation type | Starting decision |
+|---|---|
+| Read-only Calendar/Drive metadata | `allow` or `ask` depending on sensitivity |
+| Gmail search/get | `ask` until reviewed |
+| Gmail draft creation | `ask` |
+| Gmail send | `ask` or `deny` |
+| Drive share/delete | `ask` or `deny` |
+| Calendar create/update | `ask` |
+| Calendar delete | `ask` or `deny` |
+| Sheets read/update | `ask`, then narrow by route/resource |
+
+Use the UI's save/bulk-apply controls. They validate the change, update backing policy, write runtime policy, and audit the event.
+
+## 8. Configure an MCP host
+
+The MCP wrapper is copied into the self-contained runtime directory after install:
+
+```text
+.google-governance/runtime/governed_google_mcp.py
+```
+
+Clients must connect over the gateway API. They should not read local OAuth files, JWT signing secrets, or any server-side custody path.
+
+Example MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "google-governance": {
+      "command": "/path/to/google-workspace-governance-gateway/.google-governance/venv/bin/python",
+      "args": ["/path/to/google-workspace-governance-gateway/.google-governance/runtime/governed_google_mcp.py"],
+      "env": {
+        "GOOGLE_GOVERNANCE_URL": "http://127.0.0.1:8768",
+        "GOOGLE_GOVERNANCE_PROFILE": "reasoning",
+        "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "reasoning/personal-primary",
+        "GOOGLE_GOVERNANCE_ACCESS_TOKEN": "paste-ui-generated-token-here"
+      }
+    }
+  }
+}
+```
+
+Environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `GOOGLE_GOVERNANCE_URL` | Gateway API URL, usually `http://127.0.0.1:8768` |
+| `GOOGLE_GOVERNANCE_PROFILE` | Calling profile identity, e.g. `reasoning` |
+| `GOOGLE_GOVERNANCE_TOKEN_ROUTE` | Optional default route, e.g. `reasoning/personal-primary` |
+| `GOOGLE_GOVERNANCE_ACCESS_TOKEN` | API bearer token generated in **Admin settings → Runtime**; clients never read server-side secret files |
+
+Each MCP tool also accepts a `token_route` argument. Use it when a profile has more than one mapped Google account route.
+
+## 9. How agent authentication works
+
+The MCP wrapper sends an API bearer token generated by the control UI:
+
+```text
+Authorization: Bearer $GOOGLE_GOVERNANCE_ACCESS_TOKEN
+```
+
+The gateway validates only the token hash stored in its SQLite state before evaluating policy or using Google OAuth credentials. The calling profile is still included in the request payload for ACL and audit attribution.
+
+Important boundaries:
+
+- Agents receive only a gateway API token, not Google OAuth refresh tokens or signing secrets.
+- Agents do not need filesystem access to the installed repository, state directory, config directory, or token custody files.
+- Policy is evaluated by the gateway, not by the model prompt.
+- OAuth custody stays with the gateway.
+
+## 10. Approval-required operations
+
+High-risk MCP tools are intentionally guarded. Examples include:
+
+- `google_gmail_send_draft`
+- `google_calendar_delete`
+- `google_drive_share`
+- `google_drive_delete`
+
+Without an approval ID, these return a structured approval-required response. After an operator approves, the caller can execute with the approval ID through the gateway.
+
+Approval secrets are generated under:
+
+```text
+.google-governance/config/approval_admin_secret
+```
+
+Do not commit or expose this secret.
+
+## 11. Verify before real use
+
+Run offline checks from the repository clone:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/google-gov-pycache python3 -m py_compile scripts/*.py
+python3 scripts/test_control_plane.py
+python3 scripts/test_approval_workflow.py
+python3 scripts/test_governed_mcp.py
+```
+
+Run service checks on the installed host:
+
+```bash
+sudo systemctl status google-workspace-governance.service google-workspace-governance-control.service --no-pager -l
+curl -fsS http://127.0.0.1:8768/healthz
+curl -fsS http://127.0.0.1:8095/healthz
+```
+
+## 12. Update an existing install from source
+
+After pulling or editing source in the clone:
+
+```bash
+sudo PROJECT_DIR="$PWD" bash scripts/install_systemd.sh
+sudo systemctl restart google-workspace-governance.service google-workspace-governance-control.service
+curl -fsS http://127.0.0.1:8768/healthz
+curl -fsS http://127.0.0.1:8095/healthz
+```
+
+If you only changed the control UI:
+
+```bash
+sudo PROJECT_DIR="$PWD" bash scripts/install_systemd.sh
+sudo systemctl restart google-workspace-governance-control.service
+curl -fsS http://127.0.0.1:8095/healthz
+```
+
+## 13. Optional Docker evaluation
+
+Docker files are included for evaluation and packaging examples. The primary documented production path is native Linux/systemd because it gives clearer host-level custody, secrets, logs, and service hardening.
+
+If you use Docker, keep secrets and token state in mounted volumes and never bake them into an image.
+
+## 14. Troubleshooting
+
+### Control UI is not reachable
+
+```bash
+sudo systemctl status google-workspace-governance-control.service --no-pager -l
+sudo journalctl -u google-workspace-governance-control.service -n 100 --no-pager
+curl -fsS http://127.0.0.1:8095/healthz
+```
+
+### Gateway API is not reachable
+
+```bash
+sudo systemctl status google-workspace-governance.service --no-pager -l
+sudo journalctl -u google-workspace-governance.service -n 100 --no-pager
+curl -fsS http://127.0.0.1:8768/healthz
+```
+
+### API/auth errors
+
+Check that:
+
+- The MCP host has `GOOGLE_GOVERNANCE_ACCESS_TOKEN` from the control UI Runtime page.
+- The profile in `GOOGLE_GOVERNANCE_PROFILE` matches a profile configured in the UI.
+- The token route profile prefix matches the profile, e.g. `reasoning/personal-primary` for `reasoning`.
+
+### Google consent succeeds but email is missing
+
+Make sure the OAuth flow includes `openid`, `email`, and `profile` scopes. The bundled UI does this for new connections. Older tokens may need reconnecting for display-quality email discovery.
+
+### A profile can see the wrong account
+
+Review **Configure workspace routes** and the MCP host's `GOOGLE_GOVERNANCE_TOKEN_ROUTE`. A profile can have multiple routes; explicit `token_route` values are the safest way to disambiguate calls.

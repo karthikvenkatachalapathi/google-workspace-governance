@@ -1,0 +1,25 @@
+services:
+  google-workspace-governance:
+    build: .
+    ports:
+      - "127.0.0.1:8095:8095"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+      - ./google-governance-policy.yaml:/app/config/google-governance-policy.yaml:ro
+      - ./google-resource-registry.yaml:/app/config/google-resource-registry.yaml:ro
+      - ./generated/profile_policy.json:/app/config/generated/profile_policy.json:ro
+    secrets:
+      - google_governance_approval_admin_secret
+      - google_governance_control_session_secret
+      - google_governance_control_setup_token
+    restart: unless-stopped
+
+secrets:
+  google_governance_approval_admin_secret:
+    file: ./secrets/approval_admin_secret
+  google_governance_control_session_secret:
+    file: ./secrets/control_session_secret
+  google_governance_control_setup_token:
+    file: ./secrets/control_setup_token

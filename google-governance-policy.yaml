@@ -1,0 +1,236 @@
+schema_version: 2
+mode: enforce
+effective_behavior: acl_enforced
+unknown_profile_default: ask
+unknown_resource_default: ask
+unknown_google_url_default: deny
+workflow_intent_policy_role: audit_metadata_only
+accounts:
+  personal_workspace:
+    description: Karthik/Tanya Google Workspace account.
+    google_account_hint: karthiktanya2021@gmail.com
+    current_profile_routes:
+      reasoning: reasoning/personal_workspace
+      daily-assistant: daily-assistant/personal_workspace
+    status: connected
+  business_workspace:
+    description: Airbnb/business Google Workspace account.
+    google_account_hint: business.karthikvenkat@gmail.com
+    current_profile_routes: {}
+    status: connected
+  kochuraninellikkattil:
+    description: Google Workspace account connected from the control UI (kochuraninellikkattil@gmail.com).
+    phase3_target: tokens/accounts/kochuraninellikkattil/
+    status: connected_from_control_ui
+    current_profile_routes: {}
+    token_namespace: tokens/accounts/kochuraninellikkattil/
+  business-airbnb:
+    description: Google Workspace account connected from the control UI (business.karthikvenkat@gmail.com).
+    token_namespace: tokens/accounts/business-airbnb/
+    status: connected_from_control_ui
+    current_profile_routes:
+      airbnb: airbnb/business-airbnb
+  personal-primary:
+    description: Google Workspace account connected from the control UI (karthiktanya2021@gmail.com).
+    token_namespace: tokens/accounts/personal-primary/
+    status: connected_from_control_ui
+    current_profile_routes:
+      airbnb: airbnb/personal-primary
+profiles:
+  default:
+    account_alias: personal_workspace
+    default_route_alias: default/personal_workspace
+    description: Hermes default profile.
+  reasoning:
+    account_alias: personal_workspace
+    default_route_alias: reasoning/personal_workspace
+    description: Hermes reasoning/Dumbledore profile.
+  daily-assistant:
+    account_alias: personal_workspace
+    default_route_alias: daily-assistant/personal_workspace
+    description: Hermes daily-assistant/Hagrid profile.
+  airbnb:
+    account_alias: business_workspace
+    default_route_alias: airbnb/business_workspace
+    description: Hermes Airbnb/Hedwig profile.
+    connected_account_aliases:
+    - business-airbnb
+    - personal-primary
+  librarian:
+    account_alias: personal_workspace
+    default_route_alias: librarian/personal_workspace
+    description: Hermes librarian/Pince profile.
+operation_classes:
+  gmail_read:
+    actions:
+    - gmail.search
+    - gmail.get
+    - gmail.attachments.list
+    - gmail.attachments.get
+    default_decision: ask
+  gmail_draft:
+    actions:
+    - gmail.draft
+    default_decision: ask
+  gmail_send:
+    actions:
+    - gmail.send
+    default_decision: deny
+  gmail_mutation:
+    actions:
+    - gmail.modify
+    default_decision: ask
+  calendar_read:
+    actions:
+    - calendar.list
+    - calendar.get
+    - calendar.freebusy
+    default_decision: ask
+  calendar_mutation:
+    actions:
+    - calendar.create
+    - calendar.update
+    - calendar.delete
+    default_decision: ask
+  sheets_mutation:
+    actions:
+    - sheets.get
+    - sheets.update
+    - sheets.append
+    - sheets.batch_update
+    default_decision: ask
+  drive_read:
+    actions:
+    - drive.search
+    - drive.get
+    - drive.download
+    default_decision: ask
+  drive_mutation:
+    actions:
+    - drive.upload
+    - drive.create
+    - drive.copy
+    - drive.update
+    - drive.share
+    - drive.delete
+    default_decision: deny
+  docs_mutation:
+    actions:
+    - docs.get
+    - docs.create
+    - docs.update
+    - docs.append
+    default_decision: ask
+  slides_mutation:
+    actions:
+    - slides.get
+    - slides.create
+    - slides.update
+    default_decision: ask
+  contacts_read:
+    actions:
+    - contacts.search
+    default_decision: ask
+profile_policy:
+  default:
+    account_alias: personal_workspace
+    defaults: &id001
+      gmail.search: allow
+      gmail.get: deny
+      gmail.attachments.list: allow
+      gmail.attachments.get: deny
+      gmail.draft: allow
+      gmail.send: ask
+      gmail.modify: allow
+      calendar.list: allow
+      calendar.get: allow
+      calendar.freebusy: allow
+      calendar.create: allow
+      calendar.update: allow
+      calendar.delete: ask
+      drive.search: allow
+      drive.get: allow
+      drive.download: allow
+      drive.copy: allow
+      drive.create: allow
+      drive.update: allow
+      drive.share: ask
+      drive.delete: ask
+      docs.get: allow
+      docs.create: allow
+      docs.update: allow
+      docs.append: allow
+      slides.get: deny
+      slides.create: deny
+      slides.update: deny
+      contacts.search: allow
+      sheets.get: allow
+      sheets.update: allow
+      sheets.append: allow
+      sheets.batch_update: allow
+    resource_overrides: {}
+  reasoning:
+    account_alias: personal_workspace
+    defaults: *id001
+    resource_overrides:
+      calendar_primary:
+        calendar.list: allow
+        calendar.get: allow
+        calendar.freebusy: allow
+      sheet_example_tracker:
+        sheets.get: ask
+        sheets.update: ask
+        sheets.append: ask
+  daily-assistant:
+    account_alias: personal_workspace
+    defaults: *id001
+    resource_overrides:
+      calendar_primary:
+        calendar.list: allow
+        calendar.get: allow
+        calendar.freebusy: allow
+  airbnb:
+    defaults:
+      gmail.get: ask
+      gmail.attachments.get: ask
+      slides.get: ask
+      slides.create: ask
+      slides.update: ask
+      contacts.search: ask
+      drive.search: ask
+      drive.get: ask
+      drive.download: ask
+      drive.copy: deny
+      drive.create: deny
+      drive.update: deny
+      drive.share: deny
+      drive.delete: deny
+      calendar.list: ask
+      calendar.get: ask
+      calendar.freebusy: ask
+      calendar.create: ask
+      calendar.update: ask
+      calendar.delete: ask
+      docs.get: ask
+      docs.create: ask
+      docs.update: ask
+      docs.append: ask
+      gmail.search: ask
+      gmail.attachments.list: ask
+      gmail.draft: ask
+      gmail.send: deny
+      gmail.modify: ask
+      sheets.get: ask
+      sheets.update: ask
+      sheets.append: ask
+      sheets.batch_update: ask
+    resource_overrides: {}
+    account_aliases:
+    - business-airbnb
+    - personal-primary
+    account_alias: business-airbnb
+  librarian:
+    account_alias: personal_workspace
+    defaults: *id001
+    resource_overrides: {}
+global_denies: []

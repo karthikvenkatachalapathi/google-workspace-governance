@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.bak
+.env
+.env.*
+!.env.example
+secrets/
+data/
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+*.log
+.root-delete-*/

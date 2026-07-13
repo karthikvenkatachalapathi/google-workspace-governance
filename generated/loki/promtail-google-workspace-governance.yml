@@ -1,0 +1,83 @@
+# Promtail scrape config for Google Workspace Governance.
+# Replace <INSTALL_DIR> with the clone/install root (for example /opt/governance).
+# Merge this into Promtail only on hosts where Promtail should read local audit logs.
+
+scrape_configs:
+  - job_name: google-workspace-governance-audit
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: google-workspace-governance-audit
+          service: google-workspace-governance
+          component: google-governance-gateway
+          __path__: "<INSTALL_DIR>/.google-governance/logs/gateway-audit.jsonl"
+    pipeline_stages:
+      - json:
+          expressions:
+            ts: ts
+            profile: profile
+            service_name: service
+            operation: operation
+            token_route: token_route
+            resource_alias: resource_alias
+            action: action
+            decision: decision
+            status: status
+            latency_ms: latency_ms
+            request_hash: request_hash
+            request_id: request_id
+            high_risk_action: high_risk_action
+            unknown_resource: unknown_resource
+            decision_source: decision_source
+            error: error
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+      - labels:
+          profile:
+          service_name:
+          operation:
+          decision:
+          status:
+          high_risk_action:
+          unknown_resource:
+      - template:
+          source: output
+          template: 'profile={{ .profile }} service={{ .service_name }} operation={{ .operation }} token_route={{ .token_route }} resource_alias={{ .resource_alias }} action={{ .action }} decision={{ .decision }} status={{ .status }} latency_ms={{ .latency_ms }} high_risk={{ .high_risk_action }} unknown_resource={{ .unknown_resource }} request_hash={{ .request_hash }} request_id={{ .request_id }} decision_source={{ .decision_source }} error={{ .error }}'
+      - output:
+          source: output
+  - job_name: google-workspace-governance-control-audit
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: google-workspace-governance-control-audit
+          service: google-workspace-governance-control
+          component: google-governance-control-ui
+          __path__: "<INSTALL_DIR>/.google-governance/logs/control-audit.jsonl"
+    pipeline_stages:
+      - json:
+          expressions:
+            ts: ts
+            component: component
+            method: method
+            path: path
+            actor: actor
+            status: status
+            status_code: status_code
+            remote: remote
+            error: error
+            message: message
+      - timestamp:
+          source: ts
+          format: RFC3339Nano
+      - labels:
+          component:
+          method:
+          path:
+          actor:
+          status:
+      - template:
+          source: output
+          template: 'actor={{ .actor }} method={{ .method }} path={{ .path }} status={{ .status }} status_code={{ .status_code }} remote={{ .remote }} error={{ .error }} message={{ .message }}'
+      - output:
+          source: output
