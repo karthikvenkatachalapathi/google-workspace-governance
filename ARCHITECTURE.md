@@ -2,22 +2,25 @@
 
 Google Workspace Governance Gateway is a policy-enforcing access layer between agents and Google Workspace APIs.
 
-It is designed for environments where multiple AI agents, profiles, or automations need Google Workspace access, but where giving every agent its own broad OAuth token is too risky and too hard to audit.
+It is designed for environments where multiple AI agents, profiles, tenants, or automations need Google Workspace access, but where giving every actor its own broad OAuth token is too risky and too hard to audit.
+
+The gateway is multi-tenant by design: a single deployment can serve several operators, workspaces, approval bots, and agent fleets while keeping OAuth custody, route mappings, approvals, policy decisions, and audit records separated by resolved identity rather than by untrusted request labels.
 
 ## High-level flow
 
 ```text
 MCP host / agent / automation
         |
-        | short-lived HS256 JWT
-        | profile + optional token_route + action payload
+        | gateway client token + agent token
+        | optional token_route + action payload
         v
 Governed Google Workspace MCP wrapper
         |
         | normalized gateway request
         v
 Google Workspace Governance Gateway
-        |-- validates JWT/profile
+        |-- validates bridge/client credential
+        |-- resolves agent token to canonical agent/profile
         |-- resolves profile/account route
         |-- resolves resource alias
         |-- classifies policy decision
@@ -66,11 +69,11 @@ Policy YAML + runtime JSON + SQLite token/control state
 Agents are not trusted with Google OAuth refresh tokens. They receive:
 
 - gateway URL
-- profile name
 - optional default token route
-- JWT signing secret path
+- gateway client access token
+- agent identity token
 
-The agent/MCP wrapper signs short-lived JWTs for the gateway. The gateway then performs policy evaluation and Google API calls.
+The agent/MCP wrapper presents the client token as gateway authentication and the agent token as workload identity. The gateway then performs policy evaluation and Google API calls.
 
 ### Gateway boundary
 
@@ -84,17 +87,14 @@ The control UI is for human operators. It has app-level username/password sessio
 
 ### Agent to gateway
 
-The MCP wrapper creates an HS256 JWT per request. Claims include:
+The MCP wrapper sends two credentials per request:
 
-| Claim | Purpose |
+| Credential | Purpose |
 |---|---|
-| `iss` | Active profile, e.g. `agent-a` |
-| `aud` | `google-workspace-governance` |
-| `iat`, `nbf`, `exp` | Short-lived request validity window |
-| `scope` | `google.governed` |
-| `workflow` | Calling workflow, e.g. `mcp.governed_google` |
+| `Authorization: Bearer $GOOGLE_GOVERNANCE_ACCESS_TOKEN` | Authenticates the MCP bridge/client to the gateway |
+| `X-Google-Governance-Agent-Token: $GOOGLE_GOVERNANCE_AGENT_TOKEN` | Resolves the canonical profile/agent identity for ACLs, routing, and audit |
 
-The bundled MCP wrapper uses a short expiry window, currently about 60 seconds. This limits replay value and makes the gateway the durable authority instead of the bearer token.
+The gateway stores only token hashes. Client tokens may be scoped to one or more allowed agents. Agent tokens are profile-specific and cannot be replaced by a request-body `profile` string. Deployments can run in `dual` mode during migration and `strict` mode once every client sends an agent token.
 
 ### Operator to control UI
 
@@ -105,7 +105,7 @@ The control UI uses:
 - server-side session state;
 - audit logs for control actions.
 
-This is separate from Google OAuth and separate from the agent JWT path.
+This is separate from Google OAuth and separate from the gateway client/agent token path.
 
 ### Gateway to Google
 

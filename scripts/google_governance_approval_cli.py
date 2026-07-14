@@ -21,6 +21,7 @@ CONFIG_BASE = Path(os.getenv("GOOGLE_GOVERNANCE_CONFIG_DIR", str(BASE / ".google
 APPROVAL_SECRET_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH", str(CONFIG_BASE / "approval_admin_secret")))
 PROFILE = os.getenv("GOOGLE_GOVERNANCE_PROFILE", os.getenv("AGENT_GOOGLE_GOVERNANCE_PROFILE", "agent-a"))
 ACCESS_TOKEN = os.getenv("GOOGLE_GOVERNANCE_ACCESS_TOKEN") or os.getenv("AGENT_GOOGLE_GOVERNANCE_ACCESS_TOKEN")
+AGENT_TOKEN = os.getenv("GOOGLE_GOVERNANCE_AGENT_TOKEN") or os.getenv("AGENT_GOOGLE_GOVERNANCE_AGENT_TOKEN")
 
 
 def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -30,10 +31,13 @@ def post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     payload.setdefault("profile", PROFILE)
     payload.setdefault("workflow_intent", "operator.approval_cli")
     payload.setdefault("approval_admin_secret", APPROVAL_SECRET_PATH.read_text(encoding="utf-8").strip())
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN.strip()}", "Content-Type": "application/json"}
+    if AGENT_TOKEN and AGENT_TOKEN.strip():
+        headers["X-Google-Governance-Agent-Token"] = AGENT_TOKEN.strip()
     req = urllib.request.Request(
         GATEWAY_URL + path,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Authorization": f"Bearer {ACCESS_TOKEN.strip()}", "Content-Type": "application/json"},
+        headers=headers,
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30) as resp:

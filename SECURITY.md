@@ -9,20 +9,90 @@ Never commit:
 - Google OAuth refresh/access tokens.
 - Google OAuth Desktop App `client_secret.json` files.
 - `.env` files, except `.env.example`.
+- `.google-governance/` installed runtime/state/secrets/logs.
+- `database/` runtime SQLite state.
 - SQLite databases.
 - JSONL audit logs.
 - setup tokens.
-- JWT secrets.
+- gateway client tokens and agent tokens.
 - approval admin secrets.
 - session secrets.
 - local backups containing private emails, document IDs, calendar IDs, or account-specific runtime state.
 
 The repository `.gitignore` excludes common state files, but do not rely on ignore rules alone. Review `git status --short` and `git diff --cached` before pushing.
 
+## Security recommendations
+
+### Same-host deployments
+
+For a single-machine installation, the recommended shape is:
+
+```text
+agent/MCP client -> http://127.0.0.1:<gateway-port>/mcp -> gateway
+```
+
+This is acceptable because bearer tokens never leave the local host's loopback interface.
+
+### Cross-host deployments
+
+If the agent/MCP host is on a different machine from the gateway, do **not** point clients at raw HTTP over the LAN:
+
+```text
+# Do not use this for production cross-host installs
+agent/MCP client -> http://<gateway-lan-ip>:<gateway-port>/mcp
+```
+
+Use an encrypted private transport instead:
+
+```text
+agent/MCP client -> https://<domain-or-private-dns>/mcp -> reverse proxy/tunnel -> gateway localhost/private port
+```
+
+Recommended cross-host patterns, from simplest to strongest:
+
+| Pattern | Use when | Notes |
+|---|---|---|
+| SSH tunnel | One/few known agent hosts | Simple, no public listener required. |
+| WireGuard/Tailscale | Homelab/private fleet | Good default for private cross-host installs. |
+| HTTPS reverse proxy | Operators want a normal URL | Must firewall the raw gateway port and avoid auth-header logging. |
+| mTLS | Higher-assurance service-to-service deployments | Strongest identity boundary, more operational overhead. |
+
+Hard requirements for cross-host installs:
+
+- Use `https://<domain-or-private-dns>/mcp`, SSH tunnel, WireGuard/Tailscale, mTLS, or equivalent encrypted transport.
+- Block direct `http://<gateway-ip>:<gateway-port>/mcp` access with host/network firewall rules.
+- Bind the raw gateway to `127.0.0.1` when the reverse proxy runs on the same host.
+- If the gateway must bind on a private interface, allow only the reverse proxy or tunnel interface to reach it.
+- Do not log `Authorization`, `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, or `GOOGLE_GOVERNANCE_AGENT_TOKEN` values in the reverse proxy, gateway, MCP client, or process supervisor.
+- Treat bearer tokens as replayable credentials: if intercepted, they can be used until revoked.
+
+### Token compromise and prompt-injection posture
+
+The gateway uses two distinct credentials:
+
+| Credential | Purpose | Risk if stolen |
+|---|---|---|
+| `GOOGLE_GOVERNANCE_ACCESS_TOKEN` | Authenticates the client/bridge to the gateway | Lets an attacker reach gateway APIs allowed to that client. |
+| `GOOGLE_GOVERNANCE_AGENT_TOKEN` | Resolves canonical agent/workload identity | Lets an attacker act as that agent identity when paired with client access. |
+
+If both tokens are stolen, the attacker can act as that agent identity until tokens are revoked. This is credential compromise, not merely prompt injection.
+
+Prompt injection can still cause an agent to *attempt* unsafe actions, especially when reading email, documents, web pages, or chat content. The gateway should therefore keep high-risk actions on `ask` or `deny` so model output is never treated as approval.
+
+Recommended policy posture:
+
+- Use strict agent-token identity; do not trust a request-body `profile` value for authorization.
+- Keep write/externalizing actions on `ask` or `deny` by default.
+- Require human approval for Gmail send, Drive share/delete, Calendar delete, and broad Docs/Sheets writes.
+- Show approval users the exact action, route/account, target recipient/resource, and summarized payload before execution.
+- Revoke and rotate both client and agent tokens after suspected exposure.
+- Audit every gateway call with request ID, resolved agent identity, route/account, action, decision, and outcome.
+
 ## Recommended service boundary
 
 - Run the gateway under a dedicated service user, default `google-workspace-gateway`.
 - Keep the gateway API bound to `127.0.0.1` or an internal-only network.
+- For cross-host agent deployments, do not rely on raw HTTP over a shared LAN. Use HTTPS, mTLS, SSH tunneling, WireGuard/Tailscale, or an equivalent encrypted private network so bearer tokens are not exposed in transit.
 - Expose the control UI only to trusted operators.
 - Put the control UI behind VPN, reverse proxy auth, or SSO if it is reachable beyond localhost.
 - Keep runtime state, logs, and custody files out of Git, but inside the installed repository folder under `./.google-governance/` by default.
@@ -50,12 +120,12 @@ Protect these with root/service-user permissions. Rotate if exposed.
 
 ## Agent authentication
 
-Agents should authenticate to the gateway with a UI-generated API bearer token. They should not receive Google refresh tokens, JWT/signing secrets, or filesystem paths to server-side custody.
+Agents should authenticate to the gateway with a UI-generated client bearer token and a separate agent token. They should not receive Google refresh tokens, signing secrets, or filesystem paths to server-side custody.
 
 Good:
 
 ```text
-agent profile -> API bearer token -> gateway -> policy -> Google API
+agent runtime -> client bearer token + agent token -> gateway -> policy -> Google API
 ```
 
 Bad:
@@ -64,7 +134,9 @@ Bad:
 agent profile -> direct filesystem read of gateway secrets or OAuth tokens -> Google API
 ```
 
-The bundled MCP wrapper uses `GOOGLE_GOVERNANCE_ACCESS_TOKEN` and sends profile/route metadata in the API request body.
+The bundled MCP wrapper uses `GOOGLE_GOVERNANCE_ACCESS_TOKEN` for bridge/client authentication and `GOOGLE_GOVERNANCE_AGENT_TOKEN` for canonical agent identity. The gateway should evaluate policy against the resolved agent token identity, not a user-editable request-body `profile` field.
+
+If both tokens are stolen, the attacker can act as that agent identity until the tokens are revoked. Keep write/externalizing actions on `ask` or `deny` so stolen tokens and prompt-injection attempts still hit approval policy instead of executing silently.
 
 ## OAuth token custody
 
@@ -133,7 +205,7 @@ Manual review:
 
 - [ ] README explains what the project does and how it differs from generic Google MCP servers.
 - [ ] SETUP covers fresh clone, systemd install, OAuth, route mapping, ACLs, MCP config, verification, update commands.
-- [ ] ARCHITECTURE explains JWT auth, route model, token custody, policy model, approvals, observability.
+- [ ] ARCHITECTURE explains gateway/client + agent-token auth, route model, token custody, policy model, approvals, observability.
 - [ ] Example YAML does not contain private production secrets.
 - [ ] No `.bak`, `__pycache__`, `.pyc`, SQLite, JSONL, logs, `.env`, token, or client-secret files are staged.
 - [ ] Default docs do not mention private hostnames, private emails, or local-only deployment history unless they are sanitized examples.

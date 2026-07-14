@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import tempfile
+import urllib.request
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -149,8 +150,46 @@ resources:
         "['loginUser','loginPass','loginTotp']",
         'id="runtimeVersion"',
         'id="settingsNav-channels" data-icon="chat_bubble"',
-        'id="adminNav-channels" class="adminSubItem" data-icon="chat_bubble"',
+        'id="adminNav-channels" class="setupSubItem" data-icon="chat_bubble"',
         '#settingsNav-channels::before,#adminNav-channels::before',
+        'id="quickstartBtn"',
+        'id="quickstartPanel"',
+        '<span class="quickstartIcon" aria-hidden="true">🚀</span>',
+        'quickstartPanel{position:fixed',
+        "#tab-gatewaySetup[data-icon]::before{content:'🚀'",
+        '#quickstartPanel.quickstartPanel li b,#quickstartPanel.quickstartPanel li span',
+        'rgba(34,34,36,.98)',
+        'border:0!important;box-shadow:none!important;color:inherit',
+        'rocket-border-final-reset',
+        '#quickstartBtn,#quickstartBtn.quickstartBtn',
+        'access-acl-button-visibility',
+        '#accessView .accessHeader .refreshRow{padding-top:8px',
+        '#rulesView #resetRulesFilters.resetFilters',
+        'reset-filters-label-hardening',
+        "content:'Reset filters'",
+        '<span class="resetFiltersLabel">Reset filters</span>',
+        'reset-filters-real-label',
+        'reset-filters-bulkbar-blue',
+        '#rulesView .bulkbar #resetRulesFilters.resetFilters',
+        'reset-filters-single-blue-label',
+        '#rulesView .bulkbar #resetRulesFilters.resetFilters::before',
+        '<li><b>MCP Configuration</b><span>Define gateway access and identity for your agents.</span></li>',
+        'approvalDecisionCell',
+        'approvalDecisionWrap',
+        'approvalActionButtons',
+        'body.light .iconDecision.successBtn',
+        'body.light .iconDecision.dangerBtn',
+        'aria-label="Approve and execute ${raw}"',
+        'approval-row-button-color-and-spacing-final',
+        '#approvalsView .iconDecision{filter:none!important',
+        '#approvalsView .iconDecision.successBtn',
+        '#approvalsView .iconDecision.dangerBtn',
+        'approvalDetailCell',
+        'Authorize and link your Google Workspace to your agents.',
+        'Configure notification channels for agent access approvals.',
+        'id="channelBotToken" type="password" placeholder="Paste this user\'s governance bot token"',
+        'governance bot',
+        "bot_token:$('channelBotToken')?$('channelBotToken').value:''",
         'id="runtimeValidation"',
         'id="runtimeBackups"',
         'id="validateRuntime"',
@@ -164,7 +203,31 @@ resources:
         'id="apiTokenStatus"',
         'id="generateApiToken"',
         'id="apiTokenOutput"',
+        'Gateway Setup',
+        'ggovGatewaySetupExpandedDefaultV2',
+        "gatewaySetupExpanded=localStorage.ggovGatewaySetupExpanded!=='0'",
+        "document.querySelectorAll('.setupSubItem').forEach(b=>b.classList.toggle('hidden',!(admin&&gatewaySetupExpanded)))",
+        'id="tab-gatewaySetup" class="navGroup" data-icon="rocket_launch">Gateway Setup</button>',
+        'id="adminNav-tokens" class="setupSubItem" data-icon="vpn_key">MCP Configuration</button><button id="adminNav-workspace"',
+        'id="settingsNav-tokens" class="navGroup" data-icon="vpn_key">MCP Configuration</button><button id="settingsNav-workspace"',
+        'id="credentialTab-gateway"',
+        'id="credentialTab-agent"',
+        'Agent entity name',
+        'Agent Identity',
+        'class="apiTokenCreateGrid agentTokenCreateGrid"',
+        '2. Workspace Name',
+        'id="oauthTokenLabel" placeholder="Workspace name"',
+        'Workspace Name is required',
+        '>Workspace</th>',
+        'global-sort-arrows-workspace-name',
+        'routeTokenCheck,.routeProfileCheck',
+        'id="generateAgentToken"',
+        'Create agent entity',
+        '<h4>Agent entity</h4>',
+        'id="agentTokenOutput"',
         '/api/runtime/api-token/generate',
+        '/api/runtime/agent-token/generate',
+        '/api/runtime/agent-token/revoke',
         '/api/runtime/status',
         '/api/runtime/validate',
         '/api/runtime/backup/create',
@@ -185,6 +248,18 @@ resources:
         "Workspace custody</span>",
         "Workspace authentication",
         "Workspace ↔ agent profiles",
+        "agent entitys",
+        "Gateway identity",
+        "Gateway identities",
+        "Gateway Configuration",
+        "These are the current API tokens",
+        "dual/legacy modes",
+        "<b>Mode</b>",
+        "2. Optional token name",
+        'class="aclQuickLinks"',
+        ">Token</a></th>",
+        'aclHeadLink',
+        'th[data-sort]::after',
         'id="workspaceAccess"',
         'id="mapProfileCards"',
         'renderMapProfileCards',
@@ -228,8 +303,10 @@ resources:
     changed_hash = module._load_control_users()["admin"]["password_hash"]
     if not module._verify_password("new-correct-horse", changed_hash) or module._verify_password("correct-horse", changed_hash):
         raise SystemExit("password change did not update hash")
-    if snap["summary"]["rule_count"] != 1 or not snap["access_log"]:
-        raise SystemExit(f"bad snapshot: {snap}")
+    if snap["summary"]["rule_count"] != 0 or snap.get("profile_options"):
+        raise SystemExit(f"ACL rows/agent identities should be empty before Agent Identity creates entities: {snap['summary']}, {snap.get('profile_options')}")
+    if not snap["access_log"]:
+        raise SystemExit(f"access log missing from initial snapshot: {snap}")
     if snap["access_log"][0].get("request_id") != "req-test":
         raise SystemExit(f"bad access log snapshot: {snap['access_log']}")
     if len(snap["access_log"]) != 1 or snap["access_log"][0].get("token_route") != "assistant/workspace_primary":
@@ -266,6 +343,18 @@ resources:
     runtime_status = module._runtime_status()
     if not runtime_status.get("api_tokens"):
         raise SystemExit(f"runtime status did not include API token inventory: {runtime_status}")
+    generated_agent_token = module._agent_token_generate({"agent_id": "agent-a"}, "admin")
+    assistant_agent_token = module._agent_token_generate({"agent_id": "assistant"}, "admin")
+    operations_agent_token = module._agent_token_generate({"agent_id": "operations"}, "admin")
+    if generated_agent_token.get("env_var") != "GOOGLE_GOVERNANCE_AGENT_TOKEN" or generated_agent_token.get("agent_id") != "agent-a" or not generated_agent_token.get("agent_token"):
+        raise SystemExit(f"Agent token generation did not return the expected one-time token: {generated_agent_token}")
+    agent_tokens = module._agent_token_inventory()
+    agent_ids = {x.get("agent_id") for x in agent_tokens if x.get("active")}
+    if not {"agent-a", "assistant", "operations"}.issubset(agent_ids):
+        raise SystemExit(f"Agent token inventory did not record generated system-agnostic tokens: {agent_tokens}")
+    runtime_status = module._runtime_status()
+    if not runtime_status.get("agent_tokens") or runtime_status.get("agent_token_mode") not in {"dual", "strict", "legacy"}:
+        raise SystemExit(f"runtime status did not include agent token inventory/mode: {runtime_status}")
     if runtime_status.get("version", {}).get("source_sha256") != runtime_status.get("version", {}).get("installed_sha256"):
         raise SystemExit(f"runtime source status did not compare source and installed files: {runtime_status}")
     setattr(module, "_runtime_gateway_health", lambda: {"status": "ok"})
@@ -314,13 +403,19 @@ resources:
     if len(inventory.get("items", [])) != 1 or not inventory["items"][0]["has_refresh_token"]:
         raise SystemExit(f"bad workspace access inventory: {inventory}")
     client_secret = {"installed": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"]}}
-    create_req = module._workspace_access_create_request({"account_alias": "workspace_primary", "client_secret_json": json.dumps(client_secret)}, "admin")
+    try:
+        module._workspace_access_create_request({"account_alias": "workspace_primary", "client_secret_json": json.dumps(client_secret)}, "admin")
+        raise SystemExit("OAuth start accepted missing Workspace Name")
+    except ValueError as exc:
+        if "Workspace Name is required" not in str(exc):
+            raise SystemExit(f"OAuth start missing-name error was unclear: {exc}")
+    create_req = module._workspace_access_create_request({"account_alias": "workspace_primary", "client_secret_json": json.dumps(client_secret), "token_label": "Primary Workspace"}, "admin")
     if create_req.get("status") != "authorization_url_generated" or "authorization_url" not in create_req:
         raise SystemExit(f"bad workspace OAuth start: {create_req}")
     if "client_secret" in json.dumps(create_req):
         raise SystemExit("OAuth start leaked client secret")
-    if "Profile-to-token ACL mapping" not in create_req.get("message", ""):
-        raise SystemExit(f"OAuth start did not explain post-connection profile mapping: {create_req}")
+    if "Agent Identity-to-token ACL mapping" not in create_req.get("message", ""):
+        raise SystemExit(f"OAuth start message missing Agent Identity mapping hint: {create_req}")
     if not {"openid", "email", "profile"}.issubset(set(create_req.get("scopes", []))):
         raise SystemExit(f"OAuth start did not request identity scopes for email discovery: {create_req.get('scopes')}")
     if module._oauth_account_alias("", "Example Account") != "example_account":
@@ -382,6 +477,16 @@ resources:
         raise SystemExit("profile-token unmapping did not revoke the route relationship")
     if any(row.get("profile") == "assistant" and row.get("account_alias") == "workspace_primary" for row in after_unmap.get("rules", [])):
         raise SystemExit("profile-token unmapping did not remove Workspace ACL rows for the revoked profile")
+    assistant_revoke = module._agent_token_revoke({"id": assistant_agent_token["id"]}, "admin")
+    if assistant_revoke.get("status") != "revoked" or assistant_revoke.get("remaining_active_tokens") != 0 or not assistant_revoke.get("identity_cleanup", {}).get("changed"):
+        raise SystemExit(f"last assistant agent-token revoke did not deprovision its ACL identity: {assistant_revoke}")
+    after_assistant_revoke = module._snapshot()
+    if "assistant" in after_assistant_revoke.get("profile_options", []):
+        raise SystemExit(f"revoked agent identity remained selectable: {after_assistant_revoke.get('profile_options')}")
+    if any(row.get("profile") == "assistant" for row in after_assistant_revoke.get("rules", [])):
+        raise SystemExit("revoked agent identity ACL rows remained visible")
+    if any(route.get("profile") == "assistant" for route in after_assistant_revoke.get("workspace_routes", [])):
+        raise SystemExit("revoked agent identity workspace routes remained visible")
     module._store_workspace_token(
         "google-workspace",
         "workspace-full.json",
@@ -402,6 +507,27 @@ resources:
         raise SystemExit("disconnecting a workspace did not remove its workspace routes")
     if any(row.get("account_alias") == "example_account" for row in after_disconnect.get("rules", [])):
         raise SystemExit("disconnecting a workspace did not remove its ACL rows")
+
+    captured_gateway_posts = []
+    old_urlopen = module.urllib.request.urlopen
+    old_gateway_token = getattr(module, "GATEWAY_ACCESS_TOKEN", None)
+    setattr(module, "GATEWAY_ACCESS_TOKEN", "control-gateway-token")
+    class FakeGatewayApprovalResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self): return json.dumps({"status": "executed", "approval_id": "gog-test", "execution": {"status": "executed", "result": {"id": "sent-test"}}}).encode()
+    def fake_gateway_urlopen(req, timeout=180):
+        captured_gateway_posts.append(json.loads(req.data.decode("utf-8")))
+        return FakeGatewayApprovalResponse()
+    setattr(module.urllib.request, "urlopen", fake_gateway_urlopen)
+    try:
+        approve_result = module._gateway_post_with_temp_api_token("/v1/governance/approve-and-execute", {"approval_id": "gog-test"}, "admin")
+    finally:
+        setattr(module.urllib.request, "urlopen", old_urlopen)
+        setattr(module, "GATEWAY_ACCESS_TOKEN", old_gateway_token)
+    if approve_result.get("status") != "executed" or not captured_gateway_posts or captured_gateway_posts[0].get("approval_admin_secret") != "approval-secret":
+        raise SystemExit(f"control UI gateway approval call did not include admin secret: {approve_result} {captured_gateway_posts}")
+
     log_text = change_log.read_text(encoding="utf-8")
     if "policy_change_applied" not in log_text or "bulk_policy_change_applied" not in log_text:
         raise SystemExit("change log missing")

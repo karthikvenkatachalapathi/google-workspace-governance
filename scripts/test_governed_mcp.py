@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import ast
+import hashlib
 import importlib.util
 import json
 import os
@@ -148,6 +149,34 @@ def _install_test_workspace_token_db(gateway) -> None:
                 "",
             ),
         )
+        conn.execute(
+            """
+            CREATE TABLE api_tokens (
+                id TEXT PRIMARY KEY,
+                label TEXT NOT NULL DEFAULT '',
+                token_hash TEXT NOT NULL UNIQUE,
+                allowed_profiles_json TEXT NOT NULL DEFAULT '["*"]',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT NOT NULL DEFAULT '',
+                revoked_at TEXT NOT NULL DEFAULT '',
+                last_used_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE agent_tokens (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                label TEXT NOT NULL DEFAULT '',
+                token_hash TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT NOT NULL DEFAULT '',
+                revoked_at TEXT NOT NULL DEFAULT '',
+                last_used_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
         conn.commit()
     setattr(gateway, "TOKEN_DB_PATH", db_path)
 
@@ -219,6 +248,71 @@ def assert_gateway_action_mapping() -> None:
         raise SystemExit(f"blocked route returned unexpected payload: {blocked}")
 
 
+def assert_gateway_two_token_identity() -> None:
+    gateway = _load_gateway_module()
+    _install_test_workspace_token_db(gateway)
+    bridge_token = "bridge-test-token"
+    agent_token = "agent-b-token"
+    blocked_agent_token = "agent-c-token"
+    bridge_hash = hashlib.sha256(bridge_token.encode("utf-8")).hexdigest()
+    agent_hash = hashlib.sha256(agent_token.encode("utf-8")).hexdigest()
+    blocked_agent_hash = hashlib.sha256(blocked_agent_token.encode("utf-8")).hexdigest()
+    with sqlite3.connect(gateway.TOKEN_DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO api_tokens(id,label,token_hash,allowed_profiles_json) VALUES(?,?,?,?)",
+            ("gat_test", "Bridge token", bridge_hash, json.dumps(["agent-b"])),
+        )
+        conn.execute(
+            "INSERT INTO agent_tokens(id,agent_id,label,token_hash) VALUES(?,?,?,?)",
+            ("agt_test", "agent-b", "Agent B", agent_hash),
+        )
+        conn.execute(
+            "INSERT INTO agent_tokens(id,agent_id,label,token_hash) VALUES(?,?,?,?)",
+            ("agt_blocked", "agent-c", "Agent C", blocked_agent_hash),
+        )
+        conn.commit()
+    claims = gateway._verify_jwt(f"Bearer {bridge_token}")
+    if claims.get("_profile") != "agent-b" or claims.get("_allowed_profiles") != ["agent-b"]:
+        raise SystemExit(f"bridge claims did not preserve allowed agent scope: {claims}")
+    profile, identity = gateway._resolve_agent_identity(
+        {"X-Google-Governance-Agent-Token": agent_token},
+        claims,
+        {"profile": "agent-b"},
+    )
+    if profile != "agent-b" or identity.get("identity_mode") != "agent_token" or identity.get("agent_token_id") != "agt_test":
+        raise SystemExit(f"agent token did not resolve canonical identity: {(profile, identity)}")
+    try:
+        gateway._resolve_agent_identity(
+            {"X-Google-Governance-Agent-Token": blocked_agent_token},
+            claims,
+            {"profile": "agent-c"},
+        )
+    except PermissionError:
+        pass
+    else:
+        raise SystemExit("bridge token was allowed to present an unauthorized agent token")
+    try:
+        gateway._resolve_agent_identity(
+            {"X-Google-Governance-Agent-Token": agent_token},
+            claims,
+            {"profile": "agent-c"},
+        )
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("request body was allowed to spoof a different profile than the agent token")
+    os.environ["GOOGLE_GOVERNANCE_AGENT_TOKEN_MODE"] = "strict"
+    try:
+        try:
+            gateway._resolve_agent_identity({}, claims, {"profile": "agent-b"})
+        except ValueError:
+            pass
+        else:
+            raise SystemExit("strict mode accepted a request without an agent token")
+    finally:
+        os.environ.pop("GOOGLE_GOVERNANCE_AGENT_TOKEN_MODE", None)
+
+
 def assert_gateway_upstream_payload_adapters() -> None:
     gateway = _load_gateway_module()
     calls: list[dict[str, object]] = []
@@ -281,6 +375,7 @@ def assert_mcp_module_static_shape() -> dict[str, object]:
 async def main() -> None:
     assert_no_legacy_google_tools_exposed()
     assert_gateway_action_mapping()
+    assert_gateway_two_token_identity()
     assert_gateway_upstream_payload_adapters()
     static = assert_mcp_module_static_shape()
     print(json.dumps({"status": "PASS", "legacy_google_tools_exposed": 0, "action_mapping_cases": len(ACTION_CASES), **static}, indent=2))

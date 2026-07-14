@@ -4,7 +4,9 @@ A self-hosted governance gateway for Google Workspace access by AI agents, MCP c
 
 Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an authenticated browser control plane for setup and day-to-day administration.
 
-## What it does
+## Feature set
+
+### Governed Google Workspace access
 
 - Exposes governed Google Workspace tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts/People.
 - Stores Google OAuth credentials centrally in gateway-owned state instead of in each agent profile.
@@ -16,6 +18,15 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 - Provides live access logs, control-plane audit logs, and optional Prometheus/Loki/Grafana integration.
 - Includes a governed MCP server so Claude Desktop/Code or another MCP-capable runtime can use Google Workspace without direct Google token access.
 
+### Multi-tenant governance
+
+- Supports multiple tenants/workspaces from one gateway installation instead of requiring one gateway per operator, bot, or Google account.
+- Keeps tenant-owned Google OAuth custody, account aliases, route mappings, approval destinations, and audit trails separated in gateway state.
+- Lets each tenant map its own agent identities to canonical routes like `agent-a/workspace-primary` while sharing the same governed gateway runtime.
+- Supports per-tenant approval routing, including dedicated approval bots or approver channels, so one tenant's approval queue does not become another tenant's control surface.
+- Applies policy per resolved agent identity, route, action, and resource; request-body labels are audit metadata, not the tenancy boundary.
+- Gives administrators a browser-managed control plane for tenant onboarding, workspace connection, profile/route mapping, ACL edits, token revocation, and runtime policy apply.
+
 ## How this differs from typical Google Workspace MCP servers
 
 Most Google Workspace MCP servers are thin wrappers around Google APIs. They usually require each MCP host/profile to hold Google OAuth credentials and decide safety at the prompt/tool layer.
@@ -25,13 +36,13 @@ This project is different:
 | Area | Typical Google MCP server | Google Workspace Governance Gateway |
 |---|---|---|
 | Google token custody | Token lives beside the agent/MCP server | Gateway-owned token store, managed through control UI |
-| Auth between agent and Google layer | Often local trust or long-lived local credentials | Short-lived HS256 JWT from agent/profile to gateway |
+| Auth between agent and Google layer | Often local trust or long-lived local credentials | Gateway client token plus separate agent identity token |
 | Account routing | Usually one active Google token per server/profile | Multiple routes per profile, e.g. `profile/account-alias` |
 | Policy model | Minimal or app-specific | `profile + resource + action => allow/ask/deny` |
 | High-risk operations | Often directly callable if OAuth scope allows it | Approval path for externalizing/destructive operations |
 | Auditability | Depends on host logs | Gateway JSONL audit, control audit, request IDs, optional metrics |
 | Operator workflow | Config files and tokens on disk | Browser UI for OAuth connection, route mapping, ACL edits, runtime apply |
-| Google OAuth exposure | Agents often need refresh tokens | Agents receive only gateway URL, profile, route, and JWT secret |
+| Google OAuth exposure | Agents often need refresh tokens | Agents receive only gateway URL, route, client token, and agent token |
 
 The goal is not just “Google tools over MCP.” The goal is a governed Google access layer that can safely sit between multiple agents and multiple Google accounts.
 
@@ -86,13 +97,14 @@ profile + resource_alias + action => allow | ask | deny
 
 Profile-level service decisions are used for broad Workspace actions. Resource overrides can narrow or expand behavior for specific documents, calendars, Drive surfaces, or other resource aliases.
 
-### API-token authentication
+### Gateway and agent authentication
 
-Agents do not call the gateway anonymously. The MCP wrapper sends a bearer token generated in the control UI:
+Agents do not call the gateway anonymously. The MCP wrapper sends two separate credentials:
 
-- `Authorization: Bearer $GOOGLE_GOVERNANCE_ACCESS_TOKEN`
-- the request body includes `profile`, `token_route`, `workflow_intent`, and audit metadata
-- the gateway stores only token hashes and validates the presented token before policy evaluation
+- `Authorization: Bearer $GOOGLE_GOVERNANCE_ACCESS_TOKEN` authenticates the MCP bridge/client to the gateway.
+- `X-Google-Governance-Agent-Token: $GOOGLE_GOVERNANCE_AGENT_TOKEN` identifies the agent or workload on whose behalf the request is made.
+- `token_route`, `workflow_intent`, and request IDs remain request metadata; policy uses the resolved agent identity, not a user-supplied string.
+- the gateway stores only token hashes and validates both presented tokens before policy evaluation
 
 Clients never read gateway-local OAuth files, signing secrets, or server-side config. Google OAuth refresh tokens remain in gateway custody.
 
@@ -137,7 +149,7 @@ The default install creates:
 5. Upload/paste the Desktop App `client_secret.json` and complete Google consent.
 6. Go to **Configure workspace routes** and map profiles to connected account routes.
 7. Go to **ACL rules** and set `allow`, `ask`, or `deny` for each profile/action/service row.
-8. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, profile, optional default route, and a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`. Client connections are API-only; clients do not need filesystem permission to server-side state, OAuth custody, config, or secret files.
+8. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, optional default route, a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, and an agent/workload-specific `GOOGLE_GOVERNANCE_AGENT_TOKEN`. Client connections are API-only; clients do not need filesystem permission to server-side state, OAuth custody, config, or secret files.
 
 The YAML files in this repository are seed/source artifacts and recovery material. Routine operators should use the web UI so validation, runtime policy generation, audit logging, and rollback behavior stay consistent.
 
@@ -173,7 +185,8 @@ The YAML files in this repository are seed/source artifacts and recovery materia
         "GOOGLE_GOVERNANCE_URL": "http://127.0.0.1:8768",
         "GOOGLE_GOVERNANCE_PROFILE": "agent-a",
         "GOOGLE_GOVERNANCE_TOKEN_ROUTE": "agent-a/workspace-primary",
-        "GOOGLE_GOVERNANCE_ACCESS_TOKEN": "paste-ui-generated-token-here"
+        "GOOGLE_GOVERNANCE_ACCESS_TOKEN": "paste-ui-generated-client-token-here",
+        "GOOGLE_GOVERNANCE_AGENT_TOKEN": "paste-ui-generated-agent-token-here"
       }
     }
   }
@@ -203,12 +216,16 @@ python3 scripts/test_governed_mcp.py
 
 These tests are offline/static and do not require real Google tokens.
 
-## Security defaults
+## Security recommendations
 
-- Keep the gateway API private to localhost or an internal network.
-- Publish only the authenticated control UI, preferably behind your reverse proxy or SSO.
-- Do not commit OAuth refresh/access tokens, `.env`, SQLite DBs, audit logs, setup tokens, JWT secrets, approval secrets, or Google client secrets.
-- Default high-risk operations to `ask` or `deny` until reviewed.
-- Give agents only the gateway URL plus `GOOGLE_GOVERNANCE_ACCESS_TOKEN`; never give agents filesystem paths to OAuth custody, JWT/signing secrets, or server-side config.
+- Same-host installs may use `http://127.0.0.1:<gateway-port>/mcp` because bearer tokens stay on loopback.
+- Cross-host installs must not use raw `http://<gateway-lan-ip>:<gateway-port>/mcp` over a shared LAN.
+- For cross-host MCP, use `https://<domain-or-private-dns>/mcp`, SSH tunnel, WireGuard/Tailscale, mTLS, or equivalent encrypted transport.
+- Firewall the raw gateway port so ordinary LAN clients cannot bypass the reverse proxy/tunnel and hit `http://<gateway-ip>:<gateway-port>/mcp` directly.
+- Do not log `Authorization`, `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, or `GOOGLE_GOVERNANCE_AGENT_TOKEN` values.
+- Keep high-risk Workspace actions on `ask` or `deny` so stolen tokens and prompt-injection attempts do not silently execute write/externalizing operations.
+- Publish only the authenticated control UI, preferably behind your reverse proxy, VPN, or SSO.
+- Do not commit OAuth refresh/access tokens, `.env`, SQLite DBs, audit logs, setup tokens, gateway client tokens, agent tokens, approval secrets, or Google client secrets.
+- Give agents only the gateway URL, a client access token, and their own agent token; never give agents filesystem paths to OAuth custody, signing secrets, or server-side config.
 
-See [`SETUP.md`](SETUP.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), and [`SECURITY.md`](SECURITY.md) for details.
+See [`SECURITY.md`](SECURITY.md) for the full deployment guidance, including same-host vs cross-host MCP patterns, token compromise posture, and prompt-injection controls. See also [`SETUP.md`](SETUP.md) and [`ARCHITECTURE.md`](ARCHITECTURE.md).

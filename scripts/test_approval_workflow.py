@@ -10,6 +10,9 @@ import importlib.util
 import json
 import os
 import tempfile
+import threading
+import urllib.request
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +54,10 @@ class FakeSession:
 
     def delete(self, url: str, **kwargs: Any) -> FakeResponse:
         self.calls.append(("DELETE", url, kwargs))
+        return FakeResponse()
+
+    def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append((method.upper(), url, kwargs))
         return FakeResponse()
 
 
@@ -204,22 +211,149 @@ def main() -> None:
     approval_id4 = blocked4.get("approval_id")
     fake_session4 = FakeSession()
     setattr(gateway, "_session", lambda profile, route=None: fake_session4)
+    telegram_callback_posts = []
+    class FakeTelegramCallbackResponse:
+        status_code = 200
+        content = b'{"ok":true}'
+        ok = True
+        def json(self):
+            return {"ok": True}
+    def fake_telegram_callback_post(url, **kwargs):
+        telegram_callback_posts.append((url, kwargs))
+        return FakeTelegramCallbackResponse()
+    old_requests_post_cb = gateway.requests.post
+    old_bot_for_chat_cb = gateway._telegram_bot_token_for_chat
+    setattr(gateway.requests, "post", fake_telegram_callback_post)
+    setattr(gateway, "_telegram_bot_token_for_chat", lambda chat_id: "bot-token")
     cb_token = gateway._approval_callback_token(approval_id4, "approve_once")
-    callback_result = gateway._telegram_handle_update(
-        {
-            "callback_query": {
-                "id": "cb-test",
-                "data": f"gg:a:{approval_id4}:{cb_token}",
-                "from": {"username": "legacy_admin"},
-                "message": {"message_id": 1, "chat": {"id": "123"}},
-            }
-        },
-        {"token": [gateway._approval_webhook_token()]},
-    )
+    try:
+        callback_result = gateway._telegram_handle_update(
+            {
+                "callback_query": {
+                    "id": "cb-test",
+                    "data": f"gg:a:{approval_id4}:{cb_token}",
+                    "from": {"username": "legacy_admin"},
+                    "message": {"message_id": 1, "chat": {"id": "123"}},
+                }
+            },
+            {"token": [gateway._approval_webhook_token()]},
+        )
+    finally:
+        setattr(gateway.requests, "post", old_requests_post_cb)
+        setattr(gateway, "_telegram_bot_token_for_chat", old_bot_for_chat_cb)
     if callback_result.get("status") != "ok" or callback_result.get("result", {}).get("status") != "executed":
         raise SystemExit(f"telegram callback did not approve+execute: {callback_result}")
     if len(fake_session4.calls) != 1 or "/messages/send" not in fake_session4.calls[0][1]:
         raise SystemExit(f"unexpected telegram fake session calls: {fake_session4.calls}")
+    edit_payloads = [kwargs.get("json") or {} for url, kwargs in telegram_callback_posts if url.endswith("/editMessageText")]
+    if not edit_payloads:
+        raise SystemExit(f"telegram callback did not edit the original message: {telegram_callback_posts}")
+    if edit_payloads[-1].get("reply_markup") != {"inline_keyboard": []}:
+        raise SystemExit(f"telegram callback did not remove approval buttons: {edit_payloads[-1]}")
+    if "approval status: approved and executed" not in str(edit_payloads[-1].get("text") or "").lower():
+        raise SystemExit(f"telegram callback did not replace text with execution status: {edit_payloads[-1]}")
+
+    payload5 = dict(payload)
+    payload5.update({
+        "request_id": "approval-test-workspace-tool",
+        "action": "calendar.manage_event",
+        "resource_alias": "primary_calendar",
+        "_gateway_path": "/v1/tools/manage_event",
+        "_tool": "manage_event",
+        "summary": "Approved tool event",
+        "start": "2026-07-13T10:00:00-05:00",
+        "end": "2026-07-13T10:30:00-05:00",
+        "calendar": "primary",
+    })
+    blocked5 = gateway._governance_blocked("agent-a", dict(payload5))
+    approval_id5 = blocked5.get("approval_id")
+    retry5 = (blocked5.get("retry_after_approval") or {}).get("retry_payload") or {}
+    if retry5.get("_gateway_path") != "/v1/tools/manage_event" or retry5.get("_tool") != "manage_event":
+        raise SystemExit(f"approved retry payload lost original route/tool: {retry5}")
+    fake_session5 = FakeSession()
+    setattr(gateway, "_session", lambda profile, route=None: fake_session5)
+    auto_result5 = gateway._approval_approve_and_execute(
+        "agent-a",
+        {"approval_admin_secret": "approval-test-secret", "approval_id": approval_id5, "approver": "legacy_admin"},
+    )
+    if auto_result5.get("status") != "executed" or len(fake_session5.calls) != 1 or fake_session5.calls[0][0] != "POST" or "/calendar/v3/calendars/primary/events" not in fake_session5.calls[0][1]:
+        raise SystemExit(f"approved workspace tool did not execute original call: {auto_result5} {fake_session5.calls}")
+    if gateway._approval_state().get(approval_id5, {}).get("state") != "consumed":
+        raise SystemExit(f"approved workspace tool was not consumed: {gateway._approval_state().get(approval_id5)}")
+
+    payload6 = dict(payload)
+    payload6.update({
+        "request_id": "approval-test-http-admin-gmail",
+        "profile": "daily-assistant",
+        "action": "gmail.send_gmail_message",
+        "resource_alias": "gmail_send",
+        "to": "person@example.com",
+        "subject": "Test",
+        "body": "Body",
+    })
+    payload6.pop("token_route", None)
+    blocked6 = gateway._governance_blocked("daily-assistant", dict(payload6))
+    approval_id6 = blocked6.get("approval_id")
+    os.environ["GOOGLE_GOVERNANCE_API_TOKENS"] = json.dumps({"admin-token": ["*"]})
+    fake_session6 = FakeSession()
+    setattr(gateway, "_session", lambda profile, route=None: fake_session6)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), gateway.Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_port}/v1/governance/approve-and-execute",
+            data=json.dumps({"approval_admin_secret": "approval-test-secret", "approval_id": approval_id6, "approver": "ui"}).encode("utf-8"),
+            headers={"Authorization": "Bearer admin-token", "Content-Type": "application/json"},
+            method="POST",
+        )
+        http_result6 = json.loads(urllib.request.urlopen(req, timeout=5).read().decode("utf-8") or "{}")
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
+        os.environ.pop("GOOGLE_GOVERNANCE_API_TOKENS", None)
+    if http_result6.get("status") != "executed" or http_result6.get("profile") != "daily-assistant" or not fake_session6.calls:
+        raise SystemExit(f"HTTP approval-admin approve-and-execute failed: {http_result6} {fake_session6.calls}")
+    if gateway._approval_state().get(approval_id6, {}).get("state") != "consumed":
+        raise SystemExit(f"HTTP approval-admin request was not consumed: {gateway._approval_state().get(approval_id6)}")
+
+    telegram_posts = []
+    class FakeTelegramResponse:
+        status_code = 200
+        content = b'{"ok":true}'
+        ok = True
+        def json(self):
+            return {"ok": True}
+    def fake_telegram_post(url, **kwargs):
+        telegram_posts.append((url, kwargs))
+        return FakeTelegramResponse()
+    old_requests_post = gateway.requests.post
+    old_channel_rows = gateway._approval_channel_rows
+    old_default_bot = gateway._approval_telegram_bot_token
+    try:
+        setattr(gateway.requests, "post", fake_telegram_post)
+        setattr(gateway, "_approval_channel_rows", lambda profile: [{"chat_id": "12345", "label": "test-chat", "button_base_url": "", "bot_token": "bot-token"}])
+        setattr(gateway, "_approval_telegram_bot_token", lambda: "bot-token")
+        gateway._approval_notify_telegram({
+            "approval_id": "gog-buttonfmt",
+            "profile": "daily-assistant",
+            "action": "gmail.send_gmail_message",
+            "resource_alias": "gmail_send",
+            "reason": "button formatting test",
+            "expires_at": "2026-07-13T19:00:00+00:00",
+            "safe_metadata": {"token_route": "default"},
+        })
+    finally:
+        setattr(gateway.requests, "post", old_requests_post)
+        setattr(gateway, "_approval_channel_rows", old_channel_rows)
+        setattr(gateway, "_approval_telegram_bot_token", old_default_bot)
+    send_payloads = [kwargs.get("json") or {} for url, kwargs in telegram_posts if url.endswith("/sendMessage")]
+    if not send_payloads:
+        raise SystemExit(f"telegram notification did not send: {telegram_posts}")
+    keyboard = (send_payloads[-1].get("reply_markup") or {}).get("inline_keyboard") or []
+    labels = [button.get("text") for row in keyboard for button in row]
+    if labels != ["✅  Approve & Execute", "❌  Deny"]:
+        raise SystemExit(f"telegram approval button labels wrong: {labels}")
 
     audit_rows = [json.loads(line) for line in gateway.AUDIT_PATH.read_text(encoding="utf-8").splitlines()]
     if not any(row.get("approval_id") == approval_id4 and row.get("status") == "ok" and row.get("action") == "gmail.send_gmail_message" for row in audit_rows):

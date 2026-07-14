@@ -4,8 +4,14 @@ __pycache__/
 .env
 .env.*
 !.env.example
+.google-governance/
 secrets/
 data/
+database/
+backups/
+*.tgz
+*.tar.gz
+*.zip
 *.sqlite
 *.sqlite3
 *.db

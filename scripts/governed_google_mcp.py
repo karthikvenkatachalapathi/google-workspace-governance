@@ -45,6 +45,7 @@ DEFAULT_MCP_PORT = 8769
 DEFAULT_MCP_PATH = "/mcp"
 TOKEN_DB_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_TOKEN_DB_PATH", os.getenv("GOOGLE_GOVERNANCE_CONTROL_USERS_DB_PATH", "")))
 profile_header_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("google_governance_profile_header", default=None)
+agent_token_header_var: contextvars.ContextVar[str | None] = contextvars.ContextVar("google_governance_agent_token_header", default=None)
 
 
 def _csv_env(name: str) -> list[str]:
@@ -125,16 +126,21 @@ class ProfileHeaderMiddleware:
 
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         header_profile = None
+        header_agent_token = None
         if scope.get("type") == "http":
             for key, value in scope.get("headers") or []:
-                if key.lower() == b"x-google-governance-profile":
+                lower_key = key.lower()
+                if lower_key == b"x-google-governance-profile":
                     header_profile = value.decode("utf-8", "replace").strip()
-                    break
-        token = profile_header_var.set(header_profile)
+                elif lower_key in {b"x-google-governance-agent-token", b"x-agent-token"}:
+                    header_agent_token = value.decode("utf-8", "replace").strip()
+        profile_token = profile_header_var.set(header_profile)
+        agent_token = agent_token_header_var.set(header_agent_token)
         try:
             await self.app(scope, receive, send)
         finally:
-            profile_header_var.reset(token)
+            agent_token_header_var.reset(agent_token)
+            profile_header_var.reset(profile_token)
 
 
 def mcp_transport() -> str:
@@ -241,14 +247,27 @@ def auth_header(profile: str) -> str:
     )
 
 
+def agent_token() -> str | None:
+    header_token = agent_token_header_var.get()
+    if header_token:
+        return header_token
+    token = os.getenv("GOOGLE_GOVERNANCE_AGENT_TOKEN") or os.getenv("AGENT_GOOGLE_GOVERNANCE_AGENT_TOKEN")
+    return token.strip() if token and token.strip() else None
+
+
 def gateway_post(path: str, payload: dict[str, Any]) -> Any:
     profile = active_profile()
+    identity_token = agent_token()
     payload = dict(payload)
-    payload.setdefault("profile", profile)
+    if not identity_token:
+        payload.setdefault("profile", profile)
     payload.setdefault("workflow_intent", "mcp.governed_google")
     payload.setdefault("request_id", str(uuid.uuid4()))
     payload.setdefault("client", MCP_CLIENT_ID)
-    req = urllib.request.Request(gateway_url() + path, data=json.dumps(payload).encode("utf-8"), headers={"Authorization": auth_header(profile), "Content-Type": "application/json"}, method="POST")
+    headers = {"Authorization": auth_header(profile), "Content-Type": "application/json"}
+    if identity_token:
+        headers["X-Google-Governance-Agent-Token"] = identity_token
+    req = urllib.request.Request(gateway_url() + path, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=180) as resp:
             result = json.loads(resp.read().decode("utf-8") or "null")

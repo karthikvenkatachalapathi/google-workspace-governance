@@ -21,11 +21,11 @@ from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread, Event
 from typing import Any
 
 from google_workspace_action_catalog import workspace_tool_action, workspace_catalog_tool_names
-from urllib.parse import quote, parse_qs, urlencode, urlparse
+from urllib.parse import quote, parse_qs, unquote, urlencode, urlparse
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -44,6 +44,8 @@ TOKEN_ROOT = Path(os.getenv("GOOGLE_GOVERNANCE_ACCOUNT_TOKEN_ROOT", str(STATE_BA
 TOKEN_DB_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_TOKEN_DB_PATH", os.getenv("GOOGLE_GOVERNANCE_CONTROL_USERS_DB_PATH", str(STATE_BASE / "control/control_users.sqlite"))))
 API_TOKEN_HASHES_ENV = "GOOGLE_GOVERNANCE_API_TOKEN_HASHES"
 API_TOKENS_ENV = "GOOGLE_GOVERNANCE_API_TOKENS"  # plaintext compatibility only; prefer hashes
+AGENT_TOKEN_HEADER = "X-Google-Governance-Agent-Token"
+AGENT_TOKEN_MODE_ENV = "GOOGLE_GOVERNANCE_AGENT_TOKEN_MODE"  # dual | strict | legacy
 AUDIT_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_AUDIT_LOG", str(LOG_BASE / "gateway-audit.jsonl")))
 APPROVAL_STORE_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_STORE", str(STATE_BASE / "approvals/approval-events.jsonl")))
 APPROVAL_ADMIN_SECRET_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH", str(CONFIG_BASE / "approval_admin_secret")))
@@ -71,23 +73,23 @@ DEFAULT_SCOPES = [
 PROFILE_CONFIG: dict[str, dict[str, Any]] = {
     "agent-a": {
         "persona": "AgentA",
-        "legacy_audience": "dumbledore-google-governance-gateway",
+        "legacy_audience": "agent-a-google-governance-gateway",
         "unified_audience": "google-workspace-governance",
-        "service_name": "dumbledore-google-governance-gateway",
+        "service_name": "agent-a-google-governance-gateway",
         "generic_google_request": False,
     },
     "agent-c": {
         "persona": "AgentB",
-        "legacy_audience": "hagrid-google-governance-gateway",
+        "legacy_audience": "agent-c-google-governance-gateway",
         "unified_audience": "google-workspace-governance",
-        "service_name": "hagrid-google-governance-gateway",
+        "service_name": "agent-c-google-governance-gateway",
         "generic_google_request": False,
     },
     "agent-b": {
         "persona": "AgentC",
-        "legacy_audience": "hedwig-google-governance-gateway",
+        "legacy_audience": "agent-b-google-governance-gateway",
         "unified_audience": "google-workspace-governance",
-        "service_name": "hedwig-google-governance-gateway",
+        "service_name": "agent-b-google-governance-gateway",
         "generic_google_request": False,
     },
 }
@@ -366,6 +368,25 @@ def _unseal_retry_payload(sealed: Any) -> dict[str, Any]:
     return value
 
 
+SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("GOOGLE_GOVERNANCE_SQLITE_BUSY_TIMEOUT_MS", "30000"))
+
+
+def _open_sqlite(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+    """Open SQLite with a real busy timeout so Telegram callbacks do not fail under UI/token writes."""
+    if read_only:
+        uri = f"file:{path}?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=max(1.0, SQLITE_BUSY_TIMEOUT_MS / 1000.0))
+    else:
+        conn = sqlite3.connect(path, timeout=max(1.0, SQLITE_BUSY_TIMEOUT_MS / 1000.0))
+    conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
+    return conn
+
+
 def _approval_request_hash(payload: dict[str, Any]) -> str:
     """Hash approval-relevant raw payload fields without storing raw values.
 
@@ -373,7 +394,7 @@ def _approval_request_hash(payload: dict[str, Any]) -> str:
     retry (new request_id, no explanatory reason, different client wrapper), so it
     is deliberately excluded. The binding is the actor/action/resource/target.
     """
-    volatile = {"approval_id", "request_id", "reason", "client", "workflow_intent", "workflow"}
+    volatile = {"approval_id", "request_id", "reason", "client", "workflow_intent", "workflow", "_approval_request_hash", "_sealed_retry_payload"}
     stable = {str(k): v for k, v in payload.items() if str(k) not in volatile and not str(k).endswith("_sha256")}
     return hashlib.sha256(_canonical_json(stable).encode("utf-8")).hexdigest()
 
@@ -410,32 +431,59 @@ def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
     if not TOKEN_DB_PATH.exists():
         return []
     try:
-        conn = sqlite3.connect(TOKEN_DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = _open_sqlite(TOKEN_DB_PATH, read_only=True)
         try:
             rows = conn.execute(
                 """
-                SELECT id,label,chat_id,scope,profile,enabled,button_base_url,bot_token
-                FROM approval_telegram_channels
-                WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
-                ORDER BY scope DESC, profile, label
+                SELECT a.id,a.tenant_id,t.label AS tenant_label,a.label,a.chat_id,
+                       COALESCE(b.enabled,1) AS bot_enabled,
+                       COALESCE(b.public_base_url,'') AS button_base_url,
+                       COALESCE(b.bot_token,'') AS bot_token,
+                       COALESCE(b.webhook_token,'') AS webhook_token,
+                       GROUP_CONCAT(CASE WHEN acl.enabled=1 THEN acl.agent_id END) AS agent_ids
+                FROM approval_tenant_approvers a
+                JOIN approval_tenants t ON t.id=a.tenant_id
+                JOIN approval_tenant_bots b ON b.tenant_id=t.id
+                LEFT JOIN approval_tenant_agent_acl acl ON acl.tenant_id=t.id
+                WHERE t.enabled=1 AND a.enabled=1 AND b.enabled=1
+                  AND EXISTS (
+                    SELECT 1 FROM approval_tenant_agent_acl m
+                    WHERE m.tenant_id=t.id AND m.enabled=1 AND (m.agent_id='*' OR m.agent_id=? OR ?='')
+                  )
+                GROUP BY a.id
+                ORDER BY t.label,a.label
                 """,
-                (profile,),
+                (profile, profile),
             ).fetchall()
             result = [dict(row) for row in rows]
+            conn.close()
+            return result
         except sqlite3.OperationalError:
-            rows = conn.execute(
-                """
-                SELECT id,label,chat_id,scope,profile,enabled,button_base_url
-                FROM approval_telegram_channels
-                WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
-                ORDER BY scope DESC, profile, label
-                """,
-                (profile,),
-            ).fetchall()
-            result = [dict(row) | {"bot_token": ""} for row in rows]
-        conn.close()
-        return result
+            # Legacy rollback path for pre-tenant stores.
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT id,label,chat_id,scope,profile,enabled,button_base_url,bot_token
+                    FROM approval_telegram_channels
+                    WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
+                    ORDER BY scope DESC, profile, label
+                    """,
+                    (profile,),
+                ).fetchall()
+                result = [dict(row) for row in rows]
+            except sqlite3.OperationalError:
+                rows = conn.execute(
+                    """
+                    SELECT id,label,chat_id,scope,profile,enabled,button_base_url
+                    FROM approval_telegram_channels
+                    WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
+                    ORDER BY scope DESC, profile, label
+                    """,
+                    (profile,),
+                ).fetchall()
+                result = [dict(row) | {"bot_token": ""} for row in rows]
+            conn.close()
+            return result
     except sqlite3.Error:
         return []
 
@@ -444,7 +492,7 @@ def _approval_setting_value(key: str, env_name: str = "") -> str:
     value = ""
     if TOKEN_DB_PATH.exists():
         try:
-            conn = sqlite3.connect(TOKEN_DB_PATH)
+            conn = _open_sqlite(TOKEN_DB_PATH, read_only=True)
             row = conn.execute("SELECT value FROM approval_telegram_settings WHERE key=?", (key,)).fetchone()
             conn.close()
             if row and row[0]:
@@ -497,29 +545,48 @@ def _approval_webhook_token() -> str:
     return hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
 
 
-def _approval_telegram_webhook_url(base_url: str = "") -> str:
+def _approval_telegram_webhook_url(base_url: str = "", webhook_token: str = "", tenant_id: str = "") -> str:
     base = (base_url or _approval_public_base_url()).rstrip("/")
-    token = _approval_webhook_token()
+    token = (webhook_token or _approval_webhook_token()).strip()
     if not base or not token:
         return ""
-    return f"{base}/v1/governance/approvals/telegram-webhook?{urlencode({'token': token})}"
+    # Keep the public exposure to the exact webhook endpoint. The per-approval-user
+    # boundary is the unique token; the gateway resolves tenant_id from that token.
+    path = "/v1/governance/approvals/telegram-webhook"
+    return f"{base}{path}?{urlencode({'token': token})}"
 
 
-def _approval_ensure_telegram_webhook(bot_token: str, base_url: str = "") -> None:
-    webhook_url = _approval_telegram_webhook_url(base_url)
+def _approval_telegram_webhooks_enabled() -> bool:
+    return os.getenv("GOOGLE_GOVERNANCE_TELEGRAM_APPROVAL_WEBHOOKS", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _approval_ensure_telegram_webhook(bot_token: str, base_url: str = "", webhook_token: str = "", tenant_id: str = "") -> None:
+    if not _approval_telegram_webhooks_enabled():
+        _append_approval_event({"event": "telegram_webhook_skipped", "channel": "telegram", "tenant_id": str(tenant_id or ""), "reason": "webhooks_disabled_polling_mode"})
+        return
+    token = (webhook_token or _approval_webhook_token()).strip()
+    webhook_url = _approval_telegram_webhook_url(base_url, token, tenant_id)
     if not webhook_url:
         return
     api = f"https://api.telegram.org/bot{bot_token}/setWebhook"
     payload = {
         "url": webhook_url,
         "allowed_updates": ["callback_query"],
-        "secret_token": _approval_webhook_token(),
+        "secret_token": token,
         "drop_pending_updates": False,
     }
     try:
         resp = requests.post(api, json=payload, timeout=10)
-        ok = bool(resp.ok and (resp.json().get("ok") if resp.content else True))
-        _append_approval_event({"event": "telegram_webhook_configured" if ok else "telegram_webhook_failed", "channel": "telegram", "status_code": resp.status_code})
+        body: dict[str, Any] = {}
+        try:
+            body = resp.json() if resp.content else {}
+        except Exception:
+            body = {}
+        ok = bool(resp.ok and (body.get("ok") if body else True))
+        event = {"event": "telegram_webhook_configured" if ok else "telegram_webhook_failed", "channel": "telegram", "tenant_id": str(tenant_id or ""), "status_code": resp.status_code}
+        if not ok and body.get("description"):
+            event["description"] = str(body.get("description"))[:300]
+        _append_approval_event(event)
     except Exception as exc:
         _append_approval_event({"event": "telegram_webhook_failed", "channel": "telegram", "error": type(exc).__name__})
 
@@ -555,21 +622,68 @@ def _telegram_edit_callback_message(bot_token: str, callback: dict[str, Any], te
     try:
         requests.post(
             f"https://api.telegram.org/bot{bot_token}/editMessageText",
-            json={"chat_id": chat_id, "message_id": message_id, "text": text[:3900]},
+            json={"chat_id": chat_id, "message_id": message_id, "text": text[:3900], "reply_markup": {"inline_keyboard": []}},
             timeout=10,
         )
     except Exception:
         pass
 
 
-def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]], headers: dict[str, str] | None = None) -> dict[str, Any]:
+def _approval_webhook_token_rows(tenant_id: str = "") -> list[dict[str, str]]:
+    rows_out: list[dict[str, str]] = []
+    if TOKEN_DB_PATH.exists():
+        try:
+            conn = _open_sqlite(TOKEN_DB_PATH, read_only=True)
+            if tenant_id:
+                rows = conn.execute("SELECT tenant_id,webhook_token FROM approval_tenant_bots WHERE tenant_id=? AND enabled=1", (tenant_id,)).fetchall()
+            else:
+                rows = conn.execute("SELECT tenant_id,webhook_token FROM approval_tenant_bots WHERE enabled=1").fetchall()
+            conn.close()
+            for row in rows:
+                token = str(row["webhook_token"] or "").strip()
+                if token:
+                    rows_out.append({"tenant_id": str(row["tenant_id"] or ""), "webhook_token": token})
+        except sqlite3.Error as exc:
+            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+                _append_approval_event({"event": "telegram_webhook_token_lookup_failed", "channel": "telegram", "tenant_id": tenant_id, "error": type(exc).__name__, "message": str(exc)[:300]})
+                raise
+    return rows_out
+
+
+def _approval_webhook_tokens(tenant_id: str = "") -> list[str]:
+    tokens = [row["webhook_token"] for row in _approval_webhook_token_rows(tenant_id)]
+    tokens.append(_approval_webhook_token())
+    seen: set[str] = set()
+    out: list[str] = []
+    for token in tokens:
+        if token and token not in seen:
+            seen.add(token)
+            out.append(token)
+    return out
+
+
+def _approval_tenant_for_webhook_token(token: str) -> str:
+    supplied = str(token or "")
+    for row in _approval_webhook_token_rows(""):
+        if hmac.compare_digest(supplied, row["webhook_token"]):
+            return row["tenant_id"]
+    return ""
+
+
+def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]], headers: dict[str, str] | None = None, tenant_id: str = "") -> dict[str, Any]:
     supplied = str((query.get("token") or [""])[0])
-    expected = _approval_webhook_token()
+    expected_tokens = _approval_webhook_tokens(tenant_id)
     header_secret = ""
     if headers:
         header_secret = str(headers.get("X-Telegram-Bot-Api-Secret-Token") or headers.get("x-telegram-bot-api-secret-token") or "")
-    if not expected or (not hmac.compare_digest(supplied, expected) and not hmac.compare_digest(header_secret, expected)):
+    if not any(hmac.compare_digest(supplied, token) or hmac.compare_digest(header_secret, token) for token in expected_tokens):
+        callback = update.get("callback_query") or {}
+        data = str(callback.get("data") or "")
+        parts = data.split(":")
+        _append_approval_event({"event": "telegram_webhook_rejected", "channel": "telegram", "tenant_id": tenant_id, "reason": "invalid_webhook_token", "approval_id": parts[2] if len(parts) == 4 and parts[0] == "gg" else ""})
         raise PermissionError("invalid telegram webhook token")
+    if not tenant_id:
+        tenant_id = _approval_tenant_for_webhook_token(supplied) or _approval_tenant_for_webhook_token(header_secret)
     callback = update.get("callback_query") or {}
     callback_id = str(callback.get("id") or "")
     data = str(callback.get("data") or "")
@@ -590,17 +704,128 @@ def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]],
     try:
         approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "agent-a")
         if decision == "approve_once":
-            result = _approval_approve_and_execute(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "approver": actor, "reason": "Telegram Approve & Execute"})
+            result = _approval_approve_and_execute(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "approver": actor, "reason": "Telegram Approve & Execute", "tenant_id": tenant_id, "decision_channel": "telegram"})
             _telegram_callback_response(bot_token, callback_id, "Approved and executed")
-            _telegram_edit_callback_message(bot_token, callback, f"✅ Google Workspace approval executed\nApproval: {approval_id}\nStatus: {result.get('status')}")
+            _telegram_edit_callback_message(bot_token, callback, f"✅ Approval status: approved and executed\nApproval: {approval_id}\nGateway result: {result.get('status')}")
         else:
-            result = _approval_decide(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "decision": "deny", "approver": actor, "reason": "Telegram deny"})
+            result = _approval_decide(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "decision": "deny", "approver": actor, "reason": "Telegram deny", "tenant_id": tenant_id, "decision_channel": "telegram"})
             _telegram_callback_response(bot_token, callback_id, "Denied")
-            _telegram_edit_callback_message(bot_token, callback, f"❌ Google Workspace approval denied\nApproval: {approval_id}")
+            _telegram_edit_callback_message(bot_token, callback, f"❌ Approval status: denied\nApproval: {approval_id}")
     except Exception as exc:
         _telegram_callback_response(bot_token, callback_id, f"Approval failed: {type(exc).__name__}", True)
         raise
     return {"status": "ok", "approval_id": approval_id, "decision": decision, "result": result}
+
+
+def _approval_telegram_polling_enabled() -> bool:
+    return os.getenv("GOOGLE_GOVERNANCE_TELEGRAM_APPROVAL_POLLING", "true").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _approval_has_configured_webhooks() -> bool:
+    return bool(_approval_webhook_token_rows(""))
+
+
+def _approval_telegram_bot_tokens() -> list[str]:
+    seen: set[str] = set()
+    tokens: list[str] = []
+    default = _approval_telegram_bot_token()
+    if default:
+        seen.add(default)
+        tokens.append(default)
+    for channel in _approval_channel_rows(""):
+        token = str(channel.get("bot_token") or "").strip()
+        if token and token not in seen:
+            seen.add(token)
+            tokens.append(token)
+    return tokens
+
+
+def _telegram_disable_webhook_for_polling(bot_token: str) -> None:
+    token_id = hashlib.sha256(bot_token.encode("utf-8")).hexdigest()[:12]
+    try:
+        resp = requests.post(
+            f"https://api.telegram.org/bot{bot_token}/deleteWebhook",
+            json={"drop_pending_updates": False},
+            timeout=10,
+        )
+        body = resp.json() if resp.content else {}
+        _append_approval_event({
+            "event": "telegram_webhook_deleted_for_polling" if resp.ok and body.get("ok", True) else "telegram_webhook_delete_failed",
+            "channel": "telegram",
+            "bot": token_id,
+            "status_code": resp.status_code,
+            "description": str(body.get("description") or "")[:300],
+        })
+    except Exception as exc:
+        _append_approval_event({"event": "telegram_webhook_delete_failed", "channel": "telegram", "bot": token_id, "error": type(exc).__name__, "message": str(exc)[:300]})
+
+
+def _telegram_poll_bot_updates(bot_token: str, stop: Event) -> None:
+    offset = 0
+    token_id = hashlib.sha256(bot_token.encode("utf-8")).hexdigest()[:12]
+    _append_approval_event({"event": "telegram_polling_started", "channel": "telegram", "bot": token_id})
+    while not stop.is_set():
+        try:
+            params = {"timeout": 25, "allowed_updates": json.dumps(["callback_query"])}
+            if offset:
+                params["offset"] = offset
+            resp = requests.get(f"https://api.telegram.org/bot{bot_token}/getUpdates", params=params, timeout=35)
+            body = resp.json() if resp.content else {}
+            if not resp.ok or not body.get("ok"):
+                _append_approval_event({
+                    "event": "telegram_polling_failed",
+                    "channel": "telegram",
+                    "bot": token_id,
+                    "status_code": resp.status_code,
+                    "description": str(body.get("description") or "")[:300],
+                })
+                stop.wait(30)
+                continue
+            for update in body.get("result") or []:
+                try:
+                    update_id = int(update.get("update_id") or 0)
+                    if update_id >= offset:
+                        offset = update_id + 1
+                    if not update.get("callback_query"):
+                        continue
+                    _telegram_handle_update(update, {"token": [_approval_webhook_token()]}, {})
+                except Exception as exc:
+                    _append_approval_event({"event": "telegram_polling_update_failed", "channel": "telegram", "bot": token_id, "error": type(exc).__name__, "message": str(exc)[:300]})
+        except Exception as exc:
+            _append_approval_event({"event": "telegram_polling_failed", "channel": "telegram", "bot": token_id, "error": type(exc).__name__, "message": str(exc)[:300]})
+            stop.wait(30)
+
+
+def _start_telegram_approval_pollers() -> Event:
+    stop = Event()
+    if not _approval_telegram_polling_enabled():
+        return stop
+    if _approval_telegram_webhooks_enabled() and _approval_has_configured_webhooks():
+        _append_approval_event({"event": "telegram_polling_skipped", "channel": "telegram", "reason": "webhook_configured"})
+        return stop
+    for bot_token in _approval_telegram_bot_tokens():
+        if not _approval_telegram_webhooks_enabled():
+            _telegram_disable_webhook_for_polling(bot_token)
+        thread = Thread(target=_telegram_poll_bot_updates, args=(bot_token, stop), name="telegram-approval-poller", daemon=True)
+        thread.start()
+    return stop
+
+
+def _approval_notify_targets(profile: str) -> list[dict[str, Any]]:
+    targets: list[dict[str, Any]] = []
+    for channel in _approval_channel_rows(profile):
+        chat_id = str(channel.get("chat_id") or "")
+        agent_ids = [x for x in str(channel.get("agent_ids") or "").split(",") if x]
+        targets.append({
+            "tenant_id": str(channel.get("tenant_id") or ""),
+            "tenant_label": str(channel.get("tenant_label") or ""),
+            "approver_label": str(channel.get("label") or ""),
+            "chat_id_hash": hashlib.sha256(chat_id.encode("utf-8")).hexdigest()[:16] if chat_id else "",
+            "agent_ids": agent_ids,
+            "bot_configured": bool(str(channel.get("bot_token") or "").strip()),
+            "webhook_token_configured": bool(str(channel.get("webhook_token") or "").strip()),
+        })
+    return targets
 
 
 def _approval_notify_telegram(event: dict[str, Any]) -> None:
@@ -640,14 +865,14 @@ def _approval_notify_telegram(event: dict[str, Any]) -> None:
         approve_token = _approval_callback_token(approval_id, "approve_once")
         deny_token = _approval_callback_token(approval_id, "deny")
         if approve_token and deny_token:
-            payload["reply_markup"] = {"inline_keyboard": [[{"text": "Approve & Execute", "callback_data": f"gg:a:{approval_id}:{approve_token}"}, {"text": "Deny", "callback_data": f"gg:d:{approval_id}:{deny_token}"}]]}
-            _approval_ensure_telegram_webhook(bot_token, str(channel.get("button_base_url") or ""))
+            payload["reply_markup"] = {"inline_keyboard": [[{"text": "✅  Approve & Execute", "callback_data": f"gg:a:{approval_id}:{approve_token}"}, {"text": "❌  Deny", "callback_data": f"gg:d:{approval_id}:{deny_token}"}]]}
+            _approval_ensure_telegram_webhook(bot_token, str(channel.get("button_base_url") or ""), str(channel.get("webhook_token") or ""), str(channel.get("tenant_id") or ""))
         try:
             resp = requests.post(api, json=payload, timeout=10)
             ok = bool(resp.ok and (resp.json().get("ok") if resp.content else True))
-            _append_approval_event({"event": "notification_sent" if ok else "notification_failed", "approval_id": approval_id, "channel": "telegram", "target": channel.get("label") or channel.get("chat_id"), "status_code": resp.status_code})
+            _append_approval_event({"event": "notification_sent" if ok else "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "status_code": resp.status_code})
         except Exception as exc:
-            _append_approval_event({"event": "notification_failed", "approval_id": approval_id, "channel": "telegram", "target": channel.get("label") or channel.get("chat_id"), "error": type(exc).__name__})
+            _append_approval_event({"event": "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "error": type(exc).__name__})
 
 
 def _approval_events() -> list[dict[str, Any]]:
@@ -692,6 +917,8 @@ def _approval_state() -> dict[str, dict[str, Any]]:
             current["decision"] = event.get("decision")
             current["approver"] = event.get("approver")
             current["decision_reason"] = event.get("decision_reason")
+            current["decision_channel"] = event.get("decision_channel")
+            current["decision_tenant_id"] = event.get("tenant_id")
             current["approved_until"] = event.get("approved_until")
         elif event.get("event") == "consumed":
             current["state"] = "consumed"
@@ -719,6 +946,7 @@ def _create_approval_request(profile: str, action: str, resource_alias: str, rea
     if existing:
         return existing
     approval_id = f"gog-{uuid.uuid4().hex[:12]}"
+    approval_targets = _approval_notify_targets(profile)
     event = {
         "event": "requested",
         "approval_id": approval_id,
@@ -729,6 +957,8 @@ def _create_approval_request(profile: str, action: str, resource_alias: str, rea
         "reason": reason,
         "request_hash": request_hash,
         "safe_metadata": _approval_safe_metadata(payload),
+        "approval_targets": approval_targets,
+        "approval_target_count": len(approval_targets),
         "expires_at": datetime.fromtimestamp(time.time() + APPROVAL_DEFAULT_TTL_SECONDS, timezone.utc).isoformat(),
     }
     retry_payload = _approval_retry_payload(profile, action, resource_alias, payload, event)["retry_payload"]
@@ -747,15 +977,17 @@ def _approval_retry_payload(profile: str, action: str, resource_alias: str, payl
 
     The raw target payload is returned only to the same caller that supplied it;
     it is not persisted in the approval store. The store keeps safe metadata plus
-    a request hash, while the active agent session keeps this envelope so a later
-    user message like "try again" can execute the already-approved action without
-    reconstructing IDs from memory.
+    a request hash. The gateway can later unseal this payload so a UI or channel
+    approval can execute the original action directly, without asking the agent to
+    reconstruct IDs from memory or issue a separate retry.
     """
     retry_payload = dict(payload)
     retry_payload["profile"] = str(retry_payload.get("profile") or profile)
     retry_payload["action"] = str(retry_payload.get("action") or action)
     retry_payload["resource_alias"] = str(retry_payload.get("resource_alias") or resource_alias)
     retry_payload["approval_id"] = str(approval.get("approval_id") or "")
+    retry_payload["_approval_request_hash"] = str(approval.get("request_hash") or "")
+    retry_payload["_sealed_retry_payload"] = True
     retry_payload.setdefault("token_route", str(payload.get("token_route") or "default"))
     return {
         "endpoint": "/v1/governance/execute-approved",
@@ -764,7 +996,7 @@ def _approval_retry_payload(profile: str, action: str, resource_alias: str, payl
         "retry_payload": retry_payload,
         "request_hash": approval.get("request_hash"),
         "expires_at": approval.get("expires_at"),
-        "instruction": "After the user approves this request, if they say 'try again', call /v1/governance/execute-approved with retry_payload unchanged.",
+        "instruction": "After the user approves this request in the Governance UI or configured approval channel, the gateway executes the stored request automatically. Do not create a fresh approval request for an already-approved action.",
     }
 
 
@@ -818,6 +1050,8 @@ def _approval_decide(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
         "approver": str(payload.get("approver") or "admin"),
         "decision_reason": str(payload.get("reason") or ""),
         "approved_until": approved_until,
+        "tenant_id": str(payload.get("tenant_id") or ""),
+        "decision_channel": str(payload.get("decision_channel") or "admin-ui"),
     }
     _append_approval_event(event)
     status = "approved" if decision == "approve_once" else decision
@@ -835,15 +1069,21 @@ def _approval_approve_and_execute(profile: str, payload: dict[str, Any]) -> dict
     current = state.get(approval_id)
     if not current:
         raise ValueError("unknown approval_id")
+    approval_profile = str(current.get("profile") or profile or payload.get("profile") or "").strip()
+    if not approval_profile:
+        raise ValueError("approval profile unavailable")
     if current.get("state") in {"pending", "request_edit"}:
-        _approval_decide(profile, {**payload, "decision": "approve_once"})
+        _approval_decide(approval_profile, {**payload, "decision": "approve_once"})
         current = _approval_state().get(approval_id) or current
     elif current.get("state") != "approve_once":
         raise ValueError(f"approval is not executable: {current.get('state')}")
     retry_payload = _unseal_retry_payload(current.get("retry_payload_sealed"))
     retry_payload.setdefault("request_id", str(payload.get("request_id") or uuid.uuid4()))
-    result = _governance_execute_approved(profile, retry_payload)
-    return {"status": "executed", "approval_id": approval_id, "decision": "approve_once", "execution": result}
+    retry_payload.setdefault("profile", approval_profile)
+    retry_payload.setdefault("_approval_request_hash", str(current.get("request_hash") or ""))
+    retry_payload["_sealed_retry_payload"] = True
+    result = _governance_execute_approved(approval_profile, retry_payload)
+    return {"status": "executed", "approval_id": approval_id, "decision": "approve_once", "profile": approval_profile, "execution": result}
 
 
 def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
@@ -862,8 +1102,10 @@ def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
                 raise PermissionError("approval expired")
         except ValueError as exc:
             raise PermissionError("approval expiry invalid") from exc
-    request_hash = _approval_request_hash(payload)
-    if current.get("request_hash") != request_hash:
+    expected_hash = str(current.get("request_hash") or "")
+    sealed_hash = str(payload.get("_approval_request_hash") or "")
+    request_hash = sealed_hash or _approval_request_hash(payload)
+    if expected_hash != request_hash:
         raise PermissionError("approval does not match request payload")
     return current
 
@@ -888,47 +1130,60 @@ def _telegram_decide_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
 
 
 def _profile_config(profile: str) -> dict[str, Any]:
-    try:
-        return PROFILE_CONFIG[profile]
-    except KeyError as exc:
-        raise ValueError(f"unknown profile: {profile}") from exc
+    if not str(profile or "").strip():
+        raise ValueError("agent/profile identity is required")
+    # Gateway identities are system-agnostic workload principals. Static
+    # PROFILE_CONFIG entries are legacy compatibility hints only; an agent token
+    # may intentionally map any agent runtime or automation workload to an
+    # operator-defined gateway identity that does not exist in the source tree.
+    return PROFILE_CONFIG.get(profile, {
+        "persona": profile,
+        "legacy_audience": "google-workspace-governance",
+        "unified_audience": "google-workspace-governance",
+        "service_name": "google-workspace-governance",
+        "generic_google_request": False,
+    })
 
 
-def _load_api_token_map() -> dict[str, str]:
-    """Return sha256(token)->allowed profile marker for externally authenticated agents."""
-    token_map: dict[str, str] = {}
+def _normalize_profile_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        value = ["*"]
+    profiles = [str(item).strip() for item in value if str(item).strip()]
+    return profiles or ["*"]
+
+
+def _load_api_token_map() -> dict[str, list[str]]:
+    """Return sha256(token)->allowed agent/profile list for bridge/client auth."""
+    token_map: dict[str, list[str]] = {}
     raw_hashes = os.getenv(API_TOKEN_HASHES_ENV, "").strip()
     if raw_hashes:
         try:
             parsed = json.loads(raw_hashes)
             if isinstance(parsed, dict):
-                token_map.update({str(k): str(v) for k, v in parsed.items()})
+                token_map.update({str(k): _normalize_profile_list(v) for k, v in parsed.items()})
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{API_TOKEN_HASHES_ENV} must be JSON object sha256_hex->profile") from exc
+            raise ValueError(f"{API_TOKEN_HASHES_ENV} must be JSON object sha256_hex->profile-or-profiles") from exc
     raw_tokens = os.getenv(API_TOKENS_ENV, "").strip()
     if raw_tokens:
         try:
             parsed = json.loads(raw_tokens)
             if isinstance(parsed, dict):
-                for token, profile in parsed.items():
-                    token_map[hashlib.sha256(str(token).encode("utf-8")).hexdigest()] = str(profile)
+                for token, profiles in parsed.items():
+                    token_map[hashlib.sha256(str(token).encode("utf-8")).hexdigest()] = _normalize_profile_list(profiles)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{API_TOKENS_ENV} must be JSON object token->profile") from exc
+            raise ValueError(f"{API_TOKENS_ENV} must be JSON object token->profile-or-profiles") from exc
     try:
         if TOKEN_DB_PATH.exists():
-            with sqlite3.connect(TOKEN_DB_PATH) as conn:
-                conn.row_factory = sqlite3.Row
+            with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
                 rows = conn.execute("SELECT token_hash,allowed_profiles_json FROM api_tokens WHERE revoked_at=''").fetchall()
             for row in rows:
                 try:
                     profiles = json.loads(row["allowed_profiles_json"] or '["*"]')
                 except json.JSONDecodeError:
                     profiles = ["*"]
-                if "*" in profiles:
-                    token_map[str(row["token_hash"])] = "*"
-                elif len(profiles) == 1:
-                    token_map[str(row["token_hash"])] = str(profiles[0])
-        
+                token_map[str(row["token_hash"])] = _normalize_profile_list(profiles)
     except sqlite3.Error:
         pass
     return token_map
@@ -937,25 +1192,119 @@ def _load_api_token_map() -> dict[str, str]:
 def _mark_api_token_used(token_hash: str) -> None:
     try:
         if TOKEN_DB_PATH.exists():
-            with sqlite3.connect(TOKEN_DB_PATH) as conn:
+            with _open_sqlite(TOKEN_DB_PATH) as conn:
                 conn.execute("UPDATE api_tokens SET last_used_at=CURRENT_TIMESTAMP WHERE token_hash=? AND revoked_at=''", (token_hash,))
                 conn.commit()
     except sqlite3.Error:
         pass
+
 
 def _verify_api_token(token: str) -> dict[str, Any] | None:
     token_map = _load_api_token_map()
     if not token_map:
         return None
     digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    profile = token_map.get(digest)
-    if not profile:
+    allowed_profiles = token_map.get(digest)
+    if not allowed_profiles:
         raise ValueError("bad API token")
     _mark_api_token_used(digest)
-    if profile in {"*", "all", "__all__"}:
-        return {"iss": "gateway-api-token", "scope": "google.governed", "auth_method": "api_token", "_profile": "*", "_persona": "gateway"}
-    cfg = _profile_config(profile)
-    return {"iss": profile, "scope": "google.governed", "auth_method": "api_token", "_profile": profile, "_persona": cfg["persona"]}
+    if any(profile in {"*", "all", "__all__"} for profile in allowed_profiles):
+        return {"iss": "gateway-api-token", "scope": "google.governed", "auth_method": "api_token", "_profile": "*", "_persona": "gateway", "_allowed_profiles": ["*"], "_bridge_token_hash": digest}
+    if len(allowed_profiles) == 1:
+        cfg = _profile_config(allowed_profiles[0])
+        return {"iss": allowed_profiles[0], "scope": "google.governed", "auth_method": "api_token", "_profile": allowed_profiles[0], "_persona": cfg["persona"], "_allowed_profiles": allowed_profiles, "_bridge_token_hash": digest}
+    return {"iss": "gateway-api-token", "scope": "google.governed", "auth_method": "api_token", "_profile": "*", "_persona": "gateway", "_allowed_profiles": allowed_profiles, "_bridge_token_hash": digest}
+
+
+def _agent_token_mode() -> str:
+    mode = os.getenv(AGENT_TOKEN_MODE_ENV, "dual").strip().lower()
+    return mode if mode in {"dual", "strict", "legacy"} else "dual"
+
+
+def _load_agent_token_map() -> dict[str, dict[str, Any]]:
+    token_map: dict[str, dict[str, Any]] = {}
+    raw_hashes = os.getenv("GOOGLE_GOVERNANCE_AGENT_TOKEN_HASHES", "").strip()
+    if raw_hashes:
+        try:
+            parsed = json.loads(raw_hashes)
+            if isinstance(parsed, dict):
+                for token_hash, agent_id in parsed.items():
+                    token_map[str(token_hash)] = {"agent_id": str(agent_id).strip(), "source": "env"}
+        except json.JSONDecodeError as exc:
+            raise ValueError("GOOGLE_GOVERNANCE_AGENT_TOKEN_HASHES must be JSON object sha256_hex->agent_id") from exc
+    raw_tokens = os.getenv("GOOGLE_GOVERNANCE_AGENT_TOKENS", "").strip()
+    if raw_tokens:
+        try:
+            parsed = json.loads(raw_tokens)
+            if isinstance(parsed, dict):
+                for token, agent_id in parsed.items():
+                    token_map[hashlib.sha256(str(token).encode("utf-8")).hexdigest()] = {"agent_id": str(agent_id).strip(), "source": "env"}
+        except json.JSONDecodeError as exc:
+            raise ValueError("GOOGLE_GOVERNANCE_AGENT_TOKENS must be JSON object token->agent_id") from exc
+    try:
+        if TOKEN_DB_PATH.exists():
+            with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS agent_tokens (
+                        id TEXT PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        label TEXT NOT NULL DEFAULT '',
+                        token_hash TEXT NOT NULL UNIQUE,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        created_by TEXT NOT NULL DEFAULT '',
+                        revoked_at TEXT NOT NULL DEFAULT '',
+                        last_used_at TEXT NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+                rows = conn.execute("SELECT id,agent_id,label,token_hash FROM agent_tokens WHERE revoked_at=''").fetchall()
+            for row in rows:
+                token_map[str(row["token_hash"])] = {"agent_id": str(row["agent_id"]), "id": row["id"], "label": row["label"], "source": "sqlite"}
+    except sqlite3.Error:
+        pass
+    return token_map
+
+
+def _mark_agent_token_used(token_hash: str) -> None:
+    try:
+        if TOKEN_DB_PATH.exists():
+            with _open_sqlite(TOKEN_DB_PATH) as conn:
+                conn.execute("UPDATE agent_tokens SET last_used_at=CURRENT_TIMESTAMP WHERE token_hash=? AND revoked_at=''", (token_hash,))
+                conn.commit()
+    except sqlite3.Error:
+        pass
+
+
+def _resolve_agent_identity(headers: Any, claims: dict[str, Any], payload: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    mode = _agent_token_mode()
+    supplied = str(headers.get(AGENT_TOKEN_HEADER) or headers.get(AGENT_TOKEN_HEADER.lower()) or headers.get("X-Agent-Token") or "").strip()
+    allowed_profiles = _normalize_profile_list(claims.get("_allowed_profiles") or claims.get("_profile") or ["*"])
+    if supplied:
+        digest = hashlib.sha256(supplied.encode("utf-8")).hexdigest()
+        record = _load_agent_token_map().get(digest)
+        if not record or not record.get("agent_id"):
+            raise ValueError("bad agent token")
+        agent_id = str(record["agent_id"]).strip()
+        if not agent_id:
+            raise ValueError("bad agent token")
+        _profile_config(agent_id)
+        if "*" not in allowed_profiles and agent_id not in allowed_profiles:
+            raise PermissionError("bridge token is not allowed to present this agent")
+        requested_profile = str(payload.get("profile") or agent_id).strip()
+        if requested_profile and requested_profile != agent_id:
+            raise ValueError("agent token/body profile mismatch")
+        _mark_agent_token_used(digest)
+        return agent_id, {"agent_id": agent_id, "agent_token_id": record.get("id", ""), "agent_token_source": record.get("source", ""), "agent_token_hash": digest[:12], "identity_mode": "agent_token", "bridge_allowed_profiles": allowed_profiles}
+    if mode == "strict":
+        raise ValueError(f"missing {AGENT_TOKEN_HEADER}")
+    legacy_profile = str(payload.get("profile") or claims.get("_profile") or "").strip()
+    if not legacy_profile or legacy_profile == "*":
+        raise ValueError(f"missing {AGENT_TOKEN_HEADER}; legacy profile could not be resolved")
+    _profile_config(legacy_profile)
+    if "*" not in allowed_profiles and legacy_profile not in allowed_profiles:
+        raise PermissionError("bridge token is not allowed to present this legacy profile")
+    return legacy_profile, {"agent_id": legacy_profile, "identity_mode": "legacy_profile", "bridge_allowed_profiles": allowed_profiles, "agent_token_required": mode == "strict"}
 
 
 def _verify_jwt(header_value: str) -> dict[str, Any]:
@@ -975,8 +1324,7 @@ def _workspace_token_from_db(token_id: str) -> dict[str, Any] | None:
     if not TOKEN_DB_PATH.exists():
         return None
     try:
-        with sqlite3.connect(TOKEN_DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
+        with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
             row = conn.execute("SELECT * FROM workspace_tokens WHERE id=? AND revoked_at=''", (token_id,)).fetchone()
     except sqlite3.Error:
         return None
@@ -1001,8 +1349,7 @@ def _workspace_token_id_for_name(value: str | None) -> str | None:
     if not target or not TOKEN_DB_PATH.exists():
         return None
     try:
-        with sqlite3.connect(TOKEN_DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
+        with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
             rows = conn.execute("SELECT * FROM workspace_tokens WHERE revoked_at='' ORDER BY updated_at DESC, created_at DESC").fetchall()
     except sqlite3.Error:
         return None
@@ -1037,7 +1384,7 @@ def _store_workspace_token_db(token_id: str, token_payload: dict[str, Any], meta
         scopes = [x for x in raw_scopes.split() if x]
     else:
         scopes = [str(x) for x in raw_scopes if x]
-    with sqlite3.connect(TOKEN_DB_PATH) as conn:
+    with _open_sqlite(TOKEN_DB_PATH) as conn:
         conn.execute("UPDATE workspace_tokens SET token_json=?, metadata_json=?, scopes_json=?, updated_at=CURRENT_TIMESTAMP WHERE id=?", (json.dumps(token_payload, sort_keys=True), json.dumps(meta, sort_keys=True), json.dumps(scopes), token_id))
         conn.commit()
 
@@ -1242,7 +1589,7 @@ def _enforce_acl(profile: str, action: str, resource_alias: str, payload: dict[s
         "approval_state": approval.get("state", "pending"),
         "approval_expires_at": approval.get("expires_at"),
         "retry_after_approval": _approval_retry_payload(profile, action, resource_alias, payload, approval),
-        "agent_instruction": "Ask the user to approve this in the Governance UI, then say 'try again'. Keep retry_after_approval.retry_payload for that retry.",
+        "agent_instruction": "Ask the user to approve this in the Governance UI or configured approval channel. Approval executes the stored request automatically; do not retry by creating a new request.",
     }
 
 
@@ -1950,12 +2297,26 @@ def _governance_blocked(profile: str, payload: dict[str, Any]) -> dict[str, Any]
         "approval_state": approval.get("state", "pending"),
         "approval_expires_at": approval.get("expires_at"),
         "retry_after_approval": _approval_retry_payload(profile, action, resource_alias, payload, approval),
-        "agent_instruction": "Ask the user to approve this in the Governance UI, then say 'try again'. Keep retry_after_approval.retry_payload for that retry.",
+        "agent_instruction": "Ask the user to approve this in the Governance UI or configured approval channel. Approval executes the stored request automatically; do not retry by creating a new request.",
     }
 
 
 def _execute_high_risk_action(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
     action = str(payload.get("action") or "")
+    original_path = str(payload.get("_gateway_path") or "").strip()
+    if original_path.startswith("/v1/tools/"):
+        tool = str(payload.get("_tool") or original_path.rsplit("/", 1)[-1]).strip()
+        if not tool:
+            raise ValueError("approved tool execution requires _tool")
+        tool_payload = dict(payload)
+        if "." in str(tool_payload.get("action") or ""):
+            # The governance action name is stored for ACL/audit binding, but some
+            # upstream-style tools also use an `action` parameter for create/update/delete.
+            # Do not let the ACL action masquerade as the tool operation on replay.
+            tool_payload.pop("action", None)
+        return _workspace_tool_execute(profile, tool, tool_payload)
+    if original_path and original_path in ROUTES and original_path not in {"/v1/governance/blocked", "/v1/governance/approvals/list", "/v1/governance/approvals/decide", "/v1/governance/approve-and-execute", "/v1/governance/execute-approved"}:
+        return ROUTES[original_path](profile, payload)
     session = _session(profile, payload.get("token_route"))
     if action == "calendar.delete":
         calendar = str(payload.get("calendar") or "primary")
@@ -2271,36 +2632,46 @@ class Handler(BaseHTTPRequestHandler):
         payload: dict[str, Any] = {}
         try:
             parsed = urlparse(self.path)
-            if parsed.path == "/v1/governance/approvals/telegram-webhook":
+            if parsed.path == "/v1/governance/approvals/telegram-webhook" or parsed.path.startswith("/v1/governance/approvals/telegram-webhook/"):
+                tenant_id = ""
+                prefix = "/v1/governance/approvals/telegram-webhook/"
+                if parsed.path.startswith(prefix):
+                    tenant_id = unquote(parsed.path[len(prefix):].strip("/"))
                 length = int(self.headers.get("Content-Length", "0"))
                 update = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-                result = _telegram_handle_update(update, parse_qs(parsed.query), dict(self.headers))
+                result = _telegram_handle_update(update, parse_qs(parsed.query), dict(self.headers), tenant_id)
                 _json_response(self, 200, result)
                 return
             claims = _verify_jwt(self.headers.get("Authorization", ""))
-            profile = str(claims["_profile"])
             length = int(self.headers.get("Content-Length", "0"))
             payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-            requested_profile = str(payload.get("profile") or profile)
-            if profile == "*":
-                profile = requested_profile
-                _profile_config(profile)
-            elif payload.get("profile") and requested_profile != profile:
-                raise ValueError("profile claim/body mismatch")
-            _canonicalize_payload_token_route(profile, payload)
             fn = ROUTES.get(self.path)
             if not fn:
                 _json_response(self, 404, {"error": "not_found"})
                 return
+            approval_admin_paths = {"/v1/governance/approvals/list", "/v1/governance/approvals/decide", "/v1/governance/approve-and-execute"}
+            if self.path in approval_admin_paths and payload.get("approval_admin_secret"):
+                profile = str(payload.get("profile") or claims.get("_profile") or "approval-admin").strip()
+                payload.setdefault("_governance_identity", {"agent_id": profile, "identity_mode": "approval_admin", "bridge_allowed_profiles": claims.get("_allowed_profiles") or claims.get("_profile")})
+            else:
+                profile, identity = _resolve_agent_identity(self.headers, claims, payload)
+                payload["profile"] = profile
+                payload.setdefault("_governance_identity", identity)
+                _canonicalize_payload_token_route(profile, payload)
+            if self.path.startswith("/v1/tools/"):
+                payload.setdefault("_tool", self.path.rsplit("/", 1)[-1])
             if self.path not in {"/v1/governance/approvals/list", "/v1/governance/approvals/decide", "/v1/governance/approve-and-execute", "/v1/governance/execute-approved"}:
+                payload.setdefault("_gateway_path", self.path)
                 policy_action, policy_resource = _route_policy_context(self.path, profile, payload)
                 enforcement = _enforce_acl(profile, policy_action, policy_resource, payload)
                 if enforcement is not None:
                     _json_response(self, 200, enforcement)
                     return
-            if self.path.startswith("/v1/tools/"):
-                payload.setdefault("_tool", self.path.rsplit("/", 1)[-1])
             result = fn(profile, payload)
+            if isinstance(result, dict):
+                result.setdefault("agent_id", profile)
+                if payload.get("_governance_identity"):
+                    result.setdefault("governance_identity", payload.get("_governance_identity"))
             _json_response(self, 200, result)
         except Exception as exc:
             try:
@@ -2326,9 +2697,13 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    _audit("gateway", "service.start", "ok", host=HOST, port=PORT, profiles=sorted(PROFILE_CONFIG))
+    telegram_poll_stop = _start_telegram_approval_pollers()
+    _audit("gateway", "service.start", "ok", host=HOST, port=PORT, profiles=sorted(PROFILE_CONFIG), telegram_approval_polling=_approval_telegram_polling_enabled())
     print(f"Unified Google Workspace governance gateway listening on {HOST}:{PORT}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        telegram_poll_stop.set()
 
 
 if __name__ == "__main__":

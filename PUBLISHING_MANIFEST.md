@@ -8,7 +8,7 @@ This repository is intended to be cloneable and runnable by another operator aft
 
 - `README.md` — public project overview, differentiators, quick start, concepts, MCP example.
 - `SETUP.md` — fresh-clone install guide, OAuth setup, route mapping, ACL setup, MCP integration, verification, update commands.
-- `ARCHITECTURE.md` — runtime/control-plane architecture, JWT auth, route model, policy model, approvals, observability.
+- `ARCHITECTURE.md` — runtime/control-plane architecture, gateway/client + agent-token auth, route model, policy model, approvals, observability.
 - `SECURITY.md` — publishing and deployment safety checklist.
 - `PUBLISHING_MANIFEST.md` — this checklist.
 
@@ -50,8 +50,11 @@ This repository is intended to be cloneable and runnable by another operator aft
 Do not publish or stage:
 
 - `.env` or `.env.*` except `.env.example`.
+- `.google-governance/` installed runtime/state/secrets/logs.
+- `database/` runtime SQLite state.
 - `secrets/`.
 - `data/`.
+- `backups/` and local `.tgz` / `.tar.gz` exports.
 - `*.sqlite`, `*.sqlite3`, `*.db`.
 - `*.jsonl`, `*.log`.
 - `*.bak` local policy/registry backups.
@@ -59,7 +62,7 @@ Do not publish or stage:
 - OAuth refresh/access tokens.
 - Google OAuth client-secret JSON files.
 - Generated setup tokens.
-- JWT, approval, or session secrets.
+- gateway client tokens, agent tokens, approval secrets, setup tokens, or session secrets.
 - Audit exports, replay artifacts, or private local reports.
 
 ## Public-readiness requirements
@@ -72,10 +75,11 @@ A public clone should be able to answer:
 4. How do I create the first admin?
 5. How do I connect Google OAuth accounts?
 6. How do I map multiple routes per profile?
-7. How do MCP clients authenticate with short-lived JWTs?
-8. How do I configure ACL decisions and approval-required operations?
-9. How do I verify the install and tests?
-10. What must never be committed?
+7. How does multi-tenancy separate tenant workspaces, approval paths, policy, and audit trails?
+8. How do MCP clients authenticate with gateway client tokens plus agent identity tokens?
+9. How do I configure ACL decisions and approval-required operations?
+10. How do I verify the install and tests?
+11. What must never be committed?
 
 The current public docs covering those are:
 
