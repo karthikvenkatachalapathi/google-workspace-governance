@@ -52,10 +52,18 @@ install -m 0644 -o root -g root "${PROJECT_DIR}/scripts/google_governance_contro
 install -m 0644 -o root -g root "${PROJECT_DIR}/scripts/governance_policy.py" "${RUNTIME_DIR}/governance_policy.py"
 install -m 0644 -o root -g root "${PROJECT_DIR}/scripts/governed_google_mcp.py" "${RUNTIME_DIR}/governed_google_mcp.py"
 install -m 0755 -o root -g root "${PROJECT_DIR}/scripts/google_governance_approval_cli.py" "${RUNTIME_DIR}/google_governance_approval_cli.py"
-install -m 0660 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/google-governance-policy.yaml" "${STATE_DIR}/policy/google-governance-policy.yaml"
-install -m 0660 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/google-resource-registry.yaml" "${STATE_DIR}/policy/google-resource-registry.yaml"
-install -m 0640 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/generated/profile_policy.json" "${STATE_DIR}/policy/profile_policy.json"
-install -m 0640 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/generated/profile_policy.json" "${STATE_DIR}/policy/generated_profile_policy.json"
+seed_state_file(){
+  local src="$1" dest="$2" mode="$3"
+  if [[ ! -e "$dest" ]]; then
+    install -m "$mode" -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "$src" "$dest"
+  else
+    chown "${SERVICE_USER}:${SERVICE_GROUP}" "$dest"
+    chmod "$mode" "$dest"
+  fi
+}
+# YAML policy/registry artifacts are intentionally not installed; runtime uses SQLite + profile_policy.json.
+seed_state_file "${PROJECT_DIR}/generated/profile_policy.json" "${STATE_DIR}/policy/profile_policy.json" 0640
+seed_state_file "${PROJECT_DIR}/generated/profile_policy.json" "${STATE_DIR}/policy/generated_profile_policy.json" 0640
 
 python3 -m venv "${SELF_CONTAINED_DIR}/venv"
 "${SELF_CONTAINED_DIR}/venv/bin/pip" install --upgrade pip wheel >/dev/null
@@ -113,10 +121,13 @@ Environment=GOOGLE_GOVERNANCE_RUNTIME_DIR=${RUNTIME_DIR}
 Environment=GOOGLE_GOVERNANCE_ACCOUNT_TOKEN_ROOT=${STATE_DIR}/tokens/accounts
 Environment=GOOGLE_GOVERNANCE_TOKEN_ROOT=${STATE_DIR}/tokens/accounts
 Environment=GOOGLE_GOVERNANCE_TOKEN_DB_PATH=${CONTROL_DB}
+Environment=GOOGLE_GOVERNANCE_DB_BACKEND=${GOOGLE_GOVERNANCE_DB_BACKEND:-sqlite}
+Environment=GOOGLE_GOVERNANCE_DATABASE_URL=${GOOGLE_GOVERNANCE_DATABASE_URL:-}
 Environment=GOOGLE_GOVERNANCE_POLICY_JSON=${STATE_DIR}/policy/profile_policy.json
 Environment=GOOGLE_GOVERNANCE_AUDIT_LOG=${LOG_DIR}/gateway-audit.jsonl
 Environment=GOOGLE_GOVERNANCE_APPROVAL_STORE=${STATE_DIR}/approvals/approval-events.jsonl
 Environment=GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH=${CONFIG_DIR}/approval_admin_secret
+Environment=GOOGLE_GOVERNANCE_AGENT_TOKEN_MODE=strict
 ExecStart=${RUNTIME_DIR}/bin/run-gateway.sh
 Restart=always
 RestartSec=5
@@ -151,6 +162,8 @@ Environment=GOOGLE_GOVERNANCE_MCP_PATH=${MCP_PATH}
 Environment=GOOGLE_GOVERNANCE_MCP_URL=http://${MCP_HOST}:${MCP_PORT}${MCP_PATH}
 Environment=GOOGLE_GOVERNANCE_URL=http://127.0.0.1:${GATEWAY_PORT}
 Environment=GOOGLE_GOVERNANCE_TOKEN_DB_PATH=${CONTROL_DB}
+Environment=GOOGLE_GOVERNANCE_DB_BACKEND=${GOOGLE_GOVERNANCE_DB_BACKEND:-sqlite}
+Environment=GOOGLE_GOVERNANCE_DATABASE_URL=${GOOGLE_GOVERNANCE_DATABASE_URL:-}
 Environment=GOOGLE_GOVERNANCE_LOG_DIR=${LOG_DIR}
 ExecStart=${RUNTIME_DIR}/bin/run-mcp.sh
 Restart=always
@@ -185,9 +198,7 @@ Environment=GOOGLE_GOVERNANCE_STATE_DIR=${STATE_DIR}
 Environment=GOOGLE_GOVERNANCE_CONFIG_DIR=${CONFIG_DIR}
 Environment=GOOGLE_GOVERNANCE_LOG_DIR=${LOG_DIR}
 Environment=GOOGLE_GOVERNANCE_RUNTIME_DIR=${RUNTIME_DIR}
-Environment=GOOGLE_GOVERNANCE_POLICY_YAML=${STATE_DIR}/policy/google-governance-policy.yaml
-Environment=GOOGLE_GOVERNANCE_RESOURCE_REGISTRY_YAML=${STATE_DIR}/policy/google-resource-registry.yaml
-Environment=GOOGLE_GOVERNANCE_REGISTRY_YAML=${STATE_DIR}/policy/google-resource-registry.yaml
+# Legacy YAML paths intentionally omitted; runtime policy is JSON/SQLite-backed.
 Environment=GOOGLE_GOVERNANCE_GENERATED_POLICY_JSON=${STATE_DIR}/policy/generated_profile_policy.json
 Environment=GOOGLE_GOVERNANCE_RUNTIME_POLICY_JSON=${STATE_DIR}/policy/profile_policy.json
 Environment=GOOGLE_GOVERNANCE_PRIVILEGED_APPLY_CMD=
@@ -198,6 +209,8 @@ Environment=GOOGLE_GOVERNANCE_URL=http://127.0.0.1:${GATEWAY_PORT}
 Environment=GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH=${CONFIG_DIR}/approval_admin_secret
 Environment=GOOGLE_GOVERNANCE_CONTROL_USERS_DB_PATH=${CONTROL_DB}
 Environment=GOOGLE_GOVERNANCE_TOKEN_DB_PATH=${CONTROL_DB}
+Environment=GOOGLE_GOVERNANCE_DB_BACKEND=${GOOGLE_GOVERNANCE_DB_BACKEND:-sqlite}
+Environment=GOOGLE_GOVERNANCE_DATABASE_URL=${GOOGLE_GOVERNANCE_DATABASE_URL:-}
 Environment=GOOGLE_GOVERNANCE_CONTROL_AUDIT_LOG=${LOG_DIR}/control-audit.jsonl
 Environment=GOOGLE_GOVERNANCE_GATEWAY_AUDIT_LOG=${LOG_DIR}/gateway-audit.jsonl
 Environment=GOOGLE_GOVERNANCE_TOKEN_ROOT=${STATE_DIR}/tokens/accounts
@@ -228,6 +241,9 @@ PYTHONPYCACHEPREFIX=${SELF_CONTAINED_DIR}/pycache "${SELF_CONTAINED_DIR}/venv/bi
   "${RUNTIME_DIR}/google_governance_control_plane.py" "${RUNTIME_DIR}/governed_google_mcp.py" \
   "${RUNTIME_DIR}/google_governance_approval_cli.py"
 
+# Remove stale local override from earlier dual-mode compatibility installs; the unit now
+# carries the strict default directly so old drop-ins must not silently override it.
+rm -f "/etc/systemd/system/${GATEWAY_SERVICE}.d/40-agent-token-dual-mode.conf"
 systemctl daemon-reload
 wait_health() {
   local port="$1" name="$2"

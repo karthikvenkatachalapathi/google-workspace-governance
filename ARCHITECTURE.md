@@ -58,9 +58,7 @@ Policy YAML + runtime JSON + SQLite token/control state
 | Policy classifier | `scripts/governance_policy.py` | Loads generated runtime policy and decides `allow`, `ask`, or `deny`. |
 | MCP server | `scripts/governed_google_mcp.py` | Exposes Google Workspace tools to MCP hosts while routing everything through the gateway. |
 | Approval CLI | `scripts/google_governance_approval_cli.py` | Operator helper for approval-required flows. |
-| Policy source | `google-governance-policy.yaml` | Human-reviewable source/seed policy. Updated by control plane in normal operation. |
-| Resource registry | `google-resource-registry.yaml` | Source/seed registry for accounts, profiles, resource aliases, and operation metadata. |
-| Runtime policy | `generated/profile_policy.json` or installed state path | Generated policy consumed by the gateway runtime. |
+| Policy/runtime state | SQLite + `.google-governance/state/policy/profile_policy.json` | Admin UI/API-managed source of truth and generated runtime policy consumed by the gateway. |
 
 ## Trust boundaries
 
@@ -81,7 +79,7 @@ The gateway is the only component that should hold or refresh Google OAuth crede
 
 ### Control-plane boundary
 
-The control UI is for human operators. It has app-level username/password sessions and should preferably sit behind local access, VPN, reverse proxy auth, or SSO if exposed beyond localhost.
+The control UI is for administrators and trusted operators only. Users and workspace owners request onboarding through an admin workflow; they do not need UI accounts or direct gateway visibility. The admin plane has app-level sessions and should preferably sit behind local access, VPN, reverse proxy auth, or SSO if exposed beyond localhost.
 
 ## Authentication model
 

@@ -30,9 +30,6 @@ This repository is intended to be cloneable and runnable by another operator aft
 
 ### Example configuration and packaging
 
-- `google-governance-policy.yaml`
-- `google-resource-registry.yaml`
-- `generated/profile_policy.json`
 - `.env.example`
 - `.dockerignore`
 - `.gitignore`

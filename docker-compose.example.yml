@@ -6,10 +6,8 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data:/data
-      - ./google-governance-policy.yaml:/app/config/google-governance-policy.yaml:ro
-      - ./google-resource-registry.yaml:/app/config/google-resource-registry.yaml:ro
-      - ./generated/profile_policy.json:/app/config/generated/profile_policy.json:ro
+      - ./.google-governance:/app/.google-governance
+      - ./database:/app/database
     secrets:
       - google_governance_approval_admin_secret
       - google_governance_control_session_secret

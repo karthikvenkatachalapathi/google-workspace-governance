@@ -154,6 +154,16 @@ def classify(profile: str, action: str, resource_alias: str | None = None, workf
 
     profile_spec = (policy.get("profile_policy") or {}).get(profile)
     if isinstance(profile_spec, dict):
+        known_resources = set()
+        known_resources.update(((profile_spec.get("resource_overrides") or {}).keys()))
+        known_resources.update(str(r) for r in ((policy.get("resources") or {}).keys()))
+        for account_alias in ((policy.get("accounts") or {}).keys()):
+            safe = _safe_alias(str(account_alias))
+            for alias in {str(account_alias), safe}:
+                known_resources.update({
+                    f"gmail_{alias}", f"calendar_{alias}_primary", f"sheets_{alias}_workspace",
+                    f"docs_{alias}_workspace", f"drive_{alias}_workspace", f"slides_{alias}_workspace", f"contacts_{alias}",
+                })
         resource_decisions = ((profile_spec.get("resource_overrides") or {}).get(resource) or {})
         for candidate in action_candidates:
             if candidate in resource_decisions:
@@ -180,6 +190,18 @@ def classify(profile: str, action: str, resource_alias: str | None = None, workf
                     "workflow_intent": workflow_intent or "",
                     "policy_schema_version": policy.get("schema_version"),
                 }
+        unknown_resource_decision = str(policy.get("unknown_resource_default") or "ask")
+        if resource and resource != "unknown" and resource not in known_resources and (known_resources or unknown_resource_decision != "ask"):
+            return {
+                "decision": unknown_resource_decision,
+                "decision_source": "unknown_resource_default",
+                "mode": policy.get("mode", "observe_only"),
+                "profile": profile,
+                "resource_alias": resource,
+                "action": action,
+                "workflow_intent": workflow_intent or "",
+                "policy_schema_version": policy.get("schema_version"),
+            }
     else:
         return {
             "decision": str(policy.get("unknown_profile_default") or "ask"),
@@ -218,7 +240,25 @@ def _safe_alias(value: str) -> str:
     return "".join(out).strip("_") or "unknown"
 
 
-def _account_alias_for_route(profile: str, payload: dict[str, Any]) -> str:
+def _resource_alias_template(action: str) -> str:
+    if action.startswith("gmail."):
+        return "gmail_{account}"
+    if action.startswith("calendar."):
+        return "calendar_{account}_primary"
+    if action.startswith("sheets."):
+        return "sheets_{account}_workspace"
+    if action.startswith("docs."):
+        return "docs_{account}_workspace"
+    if action.startswith("drive."):
+        return "drive_{account}_workspace"
+    if action.startswith("slides."):
+        return "slides_{account}_workspace"
+    if action.startswith("contacts."):
+        return "contacts_{account}"
+    return ""
+
+
+def _account_alias_for_route(profile: str, payload: dict[str, Any], action: str = "") -> str:
     """Resolve the Google Workspace account alias for a profile-scoped route."""
     route = str(payload.get("token_route") or "").strip()
     if route and route != "default":
@@ -229,15 +269,32 @@ def _account_alias_for_route(profile: str, payload: dict[str, Any]) -> str:
             if account:
                 return _safe_alias(account)
         return _safe_alias(route)
-    profile_meta = (load_policy().get("profiles") or {}).get(profile) or {}
-    connected = profile_meta.get("connected_account_aliases") or []
+    policy = load_policy()
+    profile_meta = (policy.get("profiles") or {}).get(profile) or {}
+    account_alias = str(profile_meta.get("account_alias") or "").strip()
+    if account_alias:
+        return account_alias
+    connected = [str(x).strip() for x in (profile_meta.get("connected_account_aliases") or []) if str(x).strip()]
+    template = _resource_alias_template(action)
+    overrides = ((policy.get("profile_policy") or {}).get(profile) or {}).get("resource_overrides") or {}
+    if template and connected and overrides:
+        for alias in connected:
+            resource_alias = template.format(account=alias)
+            resource_decisions = overrides.get(resource_alias) or {}
+            if any(candidate in resource_decisions for candidate in _action_candidates(action)):
+                return alias
+    default_route = str(profile_meta.get("default_route_alias") or "").strip()
+    if "/" in default_route:
+        route_profile, account = default_route.split("/", 1)
+        if route_profile == profile and account:
+            return str(account).strip()
     if connected:
-        return _safe_alias(str(connected[0]))
+        return connected[0]
     return ""
 
 
-def _workspace_resource_alias(profile: str, payload: dict[str, Any], template: str, fallback: str) -> str:
-    account = _account_alias_for_route(profile, payload)
+def _workspace_resource_alias(profile: str, payload: dict[str, Any], template: str, fallback: str, action: str = "") -> str:
+    account = _account_alias_for_route(profile, payload, action)
     if account:
         return template.format(account=account)
     return str(payload.get("resource_alias") or fallback)
@@ -249,17 +306,17 @@ def resource_for(profile: str, action: str, payload: dict[str, Any] | None = Non
     if explicit:
         return str(explicit)
     if action.startswith("gmail."):
-        return _workspace_resource_alias(profile, payload, "gmail_{account}", "gmail_inbox")
+        return _workspace_resource_alias(profile, payload, "gmail_{account}", "gmail_inbox", action)
     if action.startswith("calendar."):
-        return _workspace_resource_alias(profile, payload, "calendar_{account}_primary", "calendar_primary")
+        return _workspace_resource_alias(profile, payload, "calendar_{account}_primary", "calendar_primary", action)
     if action.startswith("sheets."):
-        return _workspace_resource_alias(profile, payload, "sheets_{account}_workspace", "sheets_unknown")
+        return _workspace_resource_alias(profile, payload, "sheets_{account}_workspace", "sheets_unknown", action)
     if action.startswith("docs."):
-        return _workspace_resource_alias(profile, payload, "docs_{account}_workspace", "docs_unknown")
+        return _workspace_resource_alias(profile, payload, "docs_{account}_workspace", "docs_unknown", action)
     if action.startswith("drive."):
-        return _workspace_resource_alias(profile, payload, "drive_{account}_workspace", "drive_any")
+        return _workspace_resource_alias(profile, payload, "drive_{account}_workspace", "drive_any", action)
     if action.startswith("slides."):
-        return _workspace_resource_alias(profile, payload, "slides_{account}_workspace", "slides_unknown")
+        return _workspace_resource_alias(profile, payload, "slides_{account}_workspace", "slides_unknown", action)
     if action.startswith("contacts."):
-        return _workspace_resource_alias(profile, payload, "contacts_{account}", "contacts_default")
+        return _workspace_resource_alias(profile, payload, "contacts_{account}", "contacts_default", action)
     return str(payload.get("resource_alias") or "unknown")

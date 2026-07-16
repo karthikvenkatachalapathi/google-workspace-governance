@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import tempfile
 import urllib.request
@@ -104,6 +105,7 @@ resources:
     setattr(module, "GOOGLE_WORKSPACE_TOKEN_ROOT", token_root)
     setattr(module, "GOOGLE_OAUTH_STATE_ROOT", oauth_root)
     setattr(module, "RUNTIME_BACKUP_ROOT", tmp / "runtime-backups")
+    setattr(module, "RUNTIME_BACKUP_CRON_PATH", tmp / "runtime-backup.cron")
     setattr(module, "INSTALLED_CONTROL_SOURCE_PATH", tmp / "installed" / "google_governance_control_plane.py")
     module.INSTALLED_CONTROL_SOURCE_PATH.parent.mkdir(parents=True)
     module.INSTALLED_CONTROL_SOURCE_PATH.write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
@@ -112,12 +114,21 @@ resources:
 
     snap = module._snapshot()
     html = module.INDEX_HTML
+    requirements_text = (PROJECT_DIR / "requirements.txt").read_text(encoding="utf-8")
+    if "psycopg[binary]>=3.2.0" not in requirements_text:
+        raise SystemExit("default install must include psycopg Postgres driver support")
+    installer_text = (PROJECT_DIR / "scripts" / "install_systemd.sh").read_text(encoding="utf-8")
+    if installer_text.count("GOOGLE_GOVERNANCE_DB_BACKEND=${GOOGLE_GOVERNANCE_DB_BACKEND:-sqlite}") < 3:
+        raise SystemExit("installer must wire default-enabled database backend env into all services")
+    if installer_text.count("GOOGLE_GOVERNANCE_DATABASE_URL=${GOOGLE_GOVERNANCE_DATABASE_URL:-}") < 3:
+        raise SystemExit("installer must wire optional Postgres DATABASE_URL env into all services")
+
     required_ui = [
         'id="route"',
         'id="workspaceTab-auth"',
         '1. Configure new workspace',
-        '2. Configure workspace routes',
-        '3. View configured workspaces',
+        '2. Configure Agent Identity',
+        '3. Configure Agent-Workspace Route',
         'class="contentTabs workspaceStepTabs"',
         'id="workspaceOverviewPane"',
         'class="loginHeroLogo"',
@@ -154,6 +165,8 @@ resources:
         '#settingsNav-channels::before,#adminNav-channels::before',
         'id="quickstartBtn"',
         'id="quickstartPanel"',
+        'Get the gateway ready in three steps.',
+        'Configure the MCP gateway token.',
         '<span class="quickstartIcon" aria-hidden="true">🚀</span>',
         'quickstartPanel{position:fixed',
         "#tab-gatewaySetup[data-icon]::before{content:'🚀'",
@@ -173,7 +186,6 @@ resources:
         '#rulesView .bulkbar #resetRulesFilters.resetFilters',
         'reset-filters-single-blue-label',
         '#rulesView .bulkbar #resetRulesFilters.resetFilters::before',
-        '<li><b>MCP Configuration</b><span>Define gateway access and identity for your agents.</span></li>',
         'approvalDecisionCell',
         'approvalDecisionWrap',
         'approvalActionButtons',
@@ -206,12 +218,19 @@ resources:
         'Gateway Setup',
         'ggovGatewaySetupExpandedDefaultV2',
         "gatewaySetupExpanded=localStorage.ggovGatewaySetupExpanded!=='0'",
-        "document.querySelectorAll('.setupSubItem').forEach(b=>b.classList.toggle('hidden',!(admin&&gatewaySetupExpanded)))",
+        "document.querySelectorAll('.setupSubItem').forEach(b=>setVisible(b,admin&&gatewaySetupExpanded));",
+        "setVisible($('tab-access'),admin);",
+        "setVisible($('tab-approvals'),admin);",
+        "if(!isAdmin())return; if(active==='settings'&&settingsMode==='admin'",
         'id="tab-gatewaySetup" class="navGroup" data-icon="rocket_launch">Gateway Setup</button>',
-        'id="adminNav-tokens" class="setupSubItem" data-icon="vpn_key">MCP Configuration</button><button id="adminNav-workspace"',
-        'id="settingsNav-tokens" class="navGroup" data-icon="vpn_key">MCP Configuration</button><button id="settingsNav-workspace"',
-        'id="credentialTab-gateway"',
-        'id="credentialTab-agent"',
+        'id="adminNav-tokens" class="setupSubItem" data-icon="vpn_key">MCP Authorization</button><button id="adminNav-workspace" class="setupSubItem" data-icon="cloud_sync">Workspace Configuration</button>',
+        'id="settingsNav-tokens" class="navGroup" data-icon="vpn_key">MCP Authorization</button><button id="settingsNav-workspace"',
+        'class="contentTabs credentialTabs"',
+        'id="credentialTab-gateway" class="active" type="button"><span class="stepNum">1</span> Configure MCP Gateway</button>',
+        'id="workspaceTab-agent" class="subItem">2. Configure Agent Identity</button>',
+        'id="workspaceTop-agent"><span class="stepNum">2</span> Configure Agent Identity</button>',
+        'id="workspaceAgentPane" class="hidden"',
+        'id="workspaceNewConfig" class="panel relaxedDetails"',
         'Agent entity name',
         'Agent Identity',
         'class="apiTokenCreateGrid agentTokenCreateGrid"',
@@ -221,18 +240,38 @@ resources:
         '>Workspace</th>',
         'global-sort-arrows-workspace-name',
         'routeTokenCheck,.routeProfileCheck',
+        'id="profileAgentEntities"',
+        'id="profileAgentEntityList"',
+        'function renderProfileAgentEntities()',
+        'data.agent_entity_options',
+        'agent_entity_options',
+        "const decision=admin?`<select",
+        "async function saveRule(r,decision,btn){if(!isAdmin())return;",
         'id="generateAgentToken"',
-        'Create agent entity',
+        'Generate agent token',
         '<h4>Agent entity</h4>',
         'id="agentTokenOutput"',
         '/api/runtime/api-token/generate',
         '/api/runtime/agent-token/generate',
         '/api/runtime/agent-token/revoke',
+        'currentUserSettingsNotice',
+        'Manage your profile and security from the left menu.',
+        'No agent entities are assigned to your user yet. Ask an admin to assign one under User Management.',
         '/api/runtime/status',
         '/api/runtime/validate',
         '/api/runtime/backup/create',
         '/api/runtime/backup/export',
         '/api/runtime/backup/import',
+        '/api/runtime/postgres/plan',
+        '/api/runtime/postgres/migrate',
+        'database_backend',
+        'postgres_driver_available',
+        'Postgres backend support enabled',
+        'id="postgresMigration"',
+        'id="postgresDsn"',
+        'id="planPostgresMigration"',
+        'id="runPostgresMigration"',
+        'id="postgresMigrationStatus"',
         '/api/runtime/restart',
         '/api/runtime/jwt-secret/rotate',
         '/api/runtime/jwt-secret/migrate',
@@ -271,7 +310,21 @@ resources:
         '/api/runtime/jwt-secret/reveal',
         'M7,7H5A2,2',
         '<span class="code">API</span>',
+        'prompt(`Assign active agent entities',
     ]
+    required_ui = [
+        "setVisible(setupToggle,admin)",
+        "setVisible($('tab-rules'),true)",
+        "setVisible($('tab-access'),admin)",
+        "setVisible($('tab-mcp'),admin)",
+        "setVisible($('tab-approvals'),admin)",
+        "document.querySelectorAll('.setupSubItem').forEach(b=>setVisible(b,admin&&gatewaySetupExpanded));",
+        "if(!isAdmin())return; if(active==='settings'&&settingsMode==='admin'",
+        "const adminGo=(section,sub)=>{if(!isAdmin())return;",
+    ]
+    for marker in required_ui:
+        if marker not in html:
+            raise SystemExit(f"multi-tenant RBAC UI marker missing: {marker}")
     for marker in forbidden_ui:
         if marker in html:
             raise SystemExit(f"obsolete UI marker still present: {marker}")
@@ -303,6 +356,166 @@ resources:
     changed_hash = module._load_control_users()["admin"]["password_hash"]
     if not module._verify_password("new-correct-horse", changed_hash) or module._verify_password("correct-horse", changed_hash):
         raise SystemExit("password change did not update hash")
+
+    viewer_user = module._save_user({
+        "username": "viewer-one",
+        "first_name": "Viewer",
+        "last_name": "One",
+        "email": "viewer-one@example.com",
+        "role": "viewer",
+        "enabled": True,
+        "password": "viewer-password-1",
+    }, "admin")
+    if viewer_user.get("user", {}).get("role") != "viewer":
+        raise SystemExit(f"viewer user was not created cleanly: {viewer_user}")
+    try:
+        module._login({"username": "viewer-one", "password": "viewer-password-1"})
+        raise SystemExit("viewer was allowed to sign into the admin control UI")
+    except PermissionError:
+        pass
+    try:
+        module._delete_user({"username": "admin"}, "admin")
+    except ValueError as exc:
+        if "current user" not in str(exc):
+            raise SystemExit(f"self-delete guard returned wrong error: {exc}")
+    else:
+        raise SystemExit("admin self-delete was allowed")
+    module._save_user({
+        "username": "disabled-admin",
+        "first_name": "Disabled",
+        "last_name": "Admin",
+        "email": "disabled-admin@example.com",
+        "role": "admin",
+        "enabled": False,
+        "password": "disabled-admin-password-1",
+    }, "admin")
+    try:
+        module._delete_user({"username": "admin"}, "disabled-admin")
+    except ValueError as exc:
+        if "last enabled admin" not in str(exc):
+            raise SystemExit(f"last-admin delete guard returned wrong error: {exc}")
+    else:
+        raise SystemExit("last enabled admin deletion was allowed")
+    agent_token = module._agent_token_generate({"agent_id": "agent-a"}, "admin")
+    if agent_token.get("agent_id") != "agent-a":
+        raise SystemExit(f"agent token not generated: {agent_token}")
+    module._agent_token_generate({"agent_id": "agent-b"}, "admin")
+    assigned_user = module._assign_user_agent_entities({"username": "viewer-one", "assigned_agent_entities": ["agent-a"]}, "admin")
+    module._assign_user_agent_entities({"username": "admin", "assigned_agent_entities": ["agent-a"]}, "admin")
+    if assigned_user.get("user", {}).get("assigned_agent_entities") != ["agent-a"]:
+        raise SystemExit(f"agent entity assignment failed: {assigned_user}")
+    with gateway_audit.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"ts": "2026-01-02T12:34:56+00:00", "profile": "agent-a", "persona": "Agent A", "action": "approval.list", "resource_alias": "approval_queue", "decision": "ask", "status": "ok", "request_id": "req-agent-a"}) + "\n")
+    runtime_status = module._runtime_status()
+    agent_inventory = runtime_status.get("agent_tokens", [])
+    agent_row = next((x for x in agent_inventory if x.get("agent_id") == "agent-a"), {})
+    if agent_row.get("last_used_at") != "2026-01-02T12:34:56+00:00" or agent_row.get("last_used_source") != "gateway_audit":
+        raise SystemExit(f"agent last-used did not derive from gateway audit: {agent_row}")
+    viewer_snapshot = module._snapshot("viewer-one")
+    if "agent-a" not in viewer_snapshot.get("profile_options", []):
+        raise SystemExit(f"viewer assigned agent entity missing from snapshot: {viewer_snapshot.get('profile_options')}")
+    if set(viewer_snapshot.get("agent_entity_options") or []) != {"agent-a", "agent-b"}:
+        raise SystemExit(f"viewer cannot see all active agent entities: {viewer_snapshot.get('agent_entity_options')}")
+    if viewer_snapshot.get("assigned_agent_entities") != ["agent-a"]:
+        raise SystemExit(f"viewer assigned agent entity list missing from snapshot: {viewer_snapshot.get('assigned_agent_entities')}")
+    module._assign_user_agent_entities({"username": "viewer-one", "assigned_agent_entities": []}, "admin")
+    if module._current_user_payload("viewer-one").get("assigned_agent_entities"):
+        raise SystemExit("clearing assigned agent entities failed")
+    module._assign_user_agent_entities({"username": "viewer-one", "assigned_agent_entities": ["agent-a"]}, "admin")
+    module._store_workspace_token(
+        "admin_workspace",
+        "workspace-full.json",
+        {"client_id": "admin-client", "refresh_token": "admin-refresh", "scopes": ["gmail"]},
+        {"token_label": "Admin Workspace", "email": "admin@example.com", "owner_username": "admin"},
+    )
+    module._store_workspace_token(
+        "viewer_workspace",
+        "workspace-full.json",
+        {"client_id": "viewer-client", "refresh_token": "viewer-refresh", "scopes": ["gmail"]},
+        {"token_label": "Viewer Workspace", "email": "viewer-one@example.com", "owner_username": "viewer-one"},
+    )
+    admin_workspace_view = module._workspace_access_inventory(actor="admin")
+    admin_all_workspace_view = module._workspace_access_inventory(actor="admin", include_all=True)
+    viewer_workspace_view = module._workspace_access_inventory(actor="viewer-one")
+    if {item.get("account_alias") for item in admin_workspace_view.get("items", [])} != {"admin_workspace", "workspace_primary"}:
+        raise SystemExit(f"admin Gateway Setup inventory is not isolated to own/admin legacy profile: {admin_workspace_view}")
+    if {item.get("account_alias") for item in admin_all_workspace_view.get("items", [])} < {"admin_workspace", "viewer_workspace"}:
+        raise SystemExit(f"admin Control Plane inventory cannot see all users' configured workspaces: {admin_all_workspace_view}")
+    if {item.get("account_alias") for item in viewer_workspace_view.get("items", [])} != {"viewer_workspace"}:
+        raise SystemExit(f"viewer workspace inventory is not isolated to own profile: {viewer_workspace_view}")
+    listed_users = {u["username"]: u for u in module._list_users("admin").get("users", [])}
+    viewer_summary = listed_users.get("viewer-one") or {}
+    if viewer_summary.get("workspace_count") != 1 or "Viewer Workspace" not in json.dumps(viewer_summary.get("workspaces", [])):
+        raise SystemExit(f"admin user inventory does not summarize viewer workspace ownership: {viewer_summary}")
+    viewer_token_id = next((item.get("id") for item in viewer_workspace_view.get("items", []) if item.get("account_alias") == "viewer_workspace"), "")
+    try:
+        module._workspace_access_map_profiles({"token_ids": [viewer_token_id], "profiles": ["agent-a"]}, "viewer-one")
+        raise SystemExit("viewer was allowed to map Workspace routes")
+    except PermissionError:
+        pass
+    reset_result = module._admin_reset_password({"username": "viewer-one", "new_password": "viewer-password-2"}, "admin")
+    if reset_result.get("status") != "password_reset" or not module._verify_password("viewer-password-2", module._load_control_users()["viewer-one"]["password_hash"]):
+        raise SystemExit(f"admin password reset failed: {reset_result}")
+    try:
+        module._admin_reset_password({"username": "admin", "new_password": "blocked-password"}, "viewer-one")
+        raise SystemExit("viewer was allowed to reset another user's password")
+    except PermissionError:
+        pass
+
+    module._approval_channel_save({"tenant_label": "Admin Approver", "owner_username": "viewer-one", "chat_id": "111", "telegram_user_id": "111", "scope": "profile", "profile": "agent-a", "enabled": True}, "admin")
+    try:
+        module._approval_channel_save({"tenant_label": "Viewer Approver", "chat_id": "222", "telegram_user_id": "222", "scope": "profile", "profile": "agent-a", "enabled": True}, "viewer-one")
+        raise SystemExit("viewer was allowed to create approval channel")
+    except PermissionError:
+        pass
+    admin_channels = module._approval_channels_list("admin").get("channels", [])
+    try:
+        module._approval_channels_list("viewer-one")
+        raise SystemExit("viewer was allowed to view approval channels")
+    except PermissionError:
+        pass
+    if {c.get("tenant_label") for c in admin_channels} != {"Admin Approver"}:
+        raise SystemExit(f"admin channel setup inventory is not isolated to admin config: {admin_channels}")
+    if any(c.get("owner_username") != "admin" for c in admin_channels):
+        raise SystemExit(f"approval channel owner should derive from logged-in admin, not payload: {admin_channels}")
+    admin_channel = next(c for c in admin_channels if c.get("tenant_label") == "Admin Approver")
+    admin_tenant_id = str(admin_channel.get("tenant_id") or "")
+    original_gateway_inventory = module._gateway_post_with_temp_api_token
+    try:
+        def fake_approval_inventory(path, payload, actor):
+            return {"status": "ok", "approvals": [
+                {"approval_id": "gog-admin-only", "state": "pending", "profile": "agent-a", "action": "gmail.send_gmail_message", "approval_targets": [{"tenant_id": admin_tenant_id, "tenant_label": "Admin Approver", "agent_ids": ["agent-a"]}]},
+            ]}
+        setattr(module, "_gateway_post_with_temp_api_token", fake_approval_inventory)
+        admin_approval_ids = {row.get("approval_id") for row in module._approval_inventory({"state": "pending"}, "admin").get("approvals", [])}
+        if admin_approval_ids != {"gog-admin-only"}:
+            raise SystemExit(f"admin approval inventory did not show admin-routed requests: {admin_approval_ids}")
+        try:
+            module._approval_inventory({"state": "pending"}, "viewer-one")
+            raise SystemExit("viewer was allowed to view approval inventory")
+        except PermissionError:
+            pass
+    finally:
+        setattr(module, "_gateway_post_with_temp_api_token", original_gateway_inventory)
+    gateway_decisions = []
+    try:
+        def fake_approval_decision(path, payload, actor):
+            gateway_decisions.append((path, dict(payload), actor))
+            return {"status": "deny" if payload.get("decision") == "deny" else "ok", "approval_id": payload.get("approval_id"), "decision": payload.get("decision")}
+        setattr(module, "_gateway_post_with_temp_api_token", fake_approval_decision)
+        denied = module._approval_decide_ui({"approval_id": "gog-admin-only", "decision": "deny"}, "admin")
+        if denied.get("source") != "gateway" or gateway_decisions[-1][0] != "/v1/governance/approvals/decide":
+            raise SystemExit(f"UI denial did not delegate to gateway approval state: {denied}, {gateway_decisions}")
+        if gateway_decisions[-1][1].get("decision_channel") != "control-ui":
+            raise SystemExit(f"UI denial missing control-ui decision channel: {gateway_decisions[-1]}")
+    finally:
+        setattr(module, "_gateway_post_with_temp_api_token", original_gateway_inventory)
+    try:
+        module._approval_channel_delete({"tenant_id": admin_channel.get("tenant_id")}, "viewer-one")
+        raise SystemExit("viewer was allowed to delete approval channel")
+    except PermissionError:
+        pass
+
     if snap["summary"]["rule_count"] != 0 or snap.get("profile_options"):
         raise SystemExit(f"ACL rows/agent identities should be empty before Agent Identity creates entities: {snap['summary']}, {snap.get('profile_options')}")
     if not snap["access_log"]:
@@ -334,6 +547,9 @@ resources:
     runtime_status = module._runtime_status()
     if runtime_status.get("jwt_secret", {}).get("storage") != "disabled":
         raise SystemExit(f"runtime status did not expose disabled JWT custody: {runtime_status.get('jwt_secret')}")
+    db_backend = runtime_status.get("database_backend") or {}
+    if db_backend.get("active_backend") != "sqlite" or db_backend.get("postgres_support_enabled") is not True:
+        raise SystemExit(f"runtime status did not expose default-enabled Postgres backend support with SQLite active: {db_backend}")
     generated_api_token = module._api_token_generate({"label": "Test shared token"}, "admin")
     if generated_api_token.get("env_var") != "GOOGLE_GOVERNANCE_ACCESS_TOKEN" or not generated_api_token.get("access_token"):
         raise SystemExit(f"API token generation did not return the expected one-time token: {generated_api_token}")
@@ -352,6 +568,36 @@ resources:
     agent_ids = {x.get("agent_id") for x in agent_tokens if x.get("active")}
     if not {"agent-a", "assistant", "operations"}.issubset(agent_ids):
         raise SystemExit(f"Agent token inventory did not record generated system-agnostic tokens: {agent_tokens}")
+    module._assign_user_agent_entities({"username": "viewer-one", "assigned_agent_entities": ["agent-a", "operations"]}, "admin")
+    viewer_token_id = next((item.get("id") for item in viewer_workspace_view.get("items", []) if item.get("account_alias") == "viewer_workspace"), "")
+    admin_viewer_map = module._workspace_access_map_profiles({"token_id": viewer_token_id, "profiles": ["operations"]}, "admin")
+    if admin_viewer_map.get("status") != "mapped" or admin_viewer_map.get("routes", {}).get("operations") != "operations/viewer_workspace":
+        raise SystemExit(f"admin could not map viewer-visible Workspace route: {admin_viewer_map}")
+    viewer_snapshot = module._snapshot("viewer-one")
+    viewer_rule_profiles = {row.get("profile") for row in viewer_snapshot.get("rules", [])}
+    if not viewer_snapshot.get("rules") or "operations" not in viewer_rule_profiles or not viewer_rule_profiles <= {"operations", "agent-a"}:
+        raise SystemExit(f"viewer snapshot did not expose only assigned-agent ACL rows: {viewer_snapshot.get('rules')}")
+    admin_scoped_snapshot = module._snapshot("admin")
+    admin_scoped_profiles = {row.get("profile") for row in admin_scoped_snapshot.get("rules", [])}
+    if not admin_scoped_profiles <= {"agent-a"}:
+        raise SystemExit(f"admin ACL view was not scoped to admin-owned/assigned ACL rows: {admin_scoped_snapshot.get('rules')}")
+    admin_all_snapshot = module._snapshot("admin", include_all=True)
+    admin_all_profiles = {row.get("profile") for row in admin_all_snapshot.get("rules", [])}
+    if "operations" not in admin_all_profiles:
+        raise SystemExit(f"admin all-user Control Plane snapshot did not preserve global ACL rows: {admin_all_snapshot.get('rules')}")
+    viewer_acl_row = next((row for row in viewer_snapshot.get("rules", []) if row.get("profile") == "operations" and row.get("action") == "gmail.search_gmail_messages" and row.get("account_alias") == "viewer_workspace"), None)
+    if not viewer_acl_row or viewer_acl_row.get("scope") != "override" or viewer_acl_row.get("resource_alias") in {"", "__profile_default__"}:
+        raise SystemExit(f"viewer ACL rows must be route/resource scoped, not profile-default scoped: {viewer_acl_row}")
+    try:
+        module._apply_policy_change({"profile": viewer_acl_row["profile"], "scope": viewer_acl_row["scope"], "resource_alias": viewer_acl_row["resource_alias"], "action": viewer_acl_row["action"], "decision": "ask", "actor": "viewer-one", "reason": "viewer self-service"})
+        raise SystemExit("viewer was allowed to edit route-scoped ACL row")
+    except PermissionError:
+        pass
+    try:
+        module._apply_bulk_policy_changes({"actor": "viewer-one", "reason": "viewer bulk self-service", "changes": [{"profile": viewer_acl_row["profile"], "scope": viewer_acl_row["scope"], "resource_alias": viewer_acl_row["resource_alias"], "action": viewer_acl_row["action"], "decision": "deny"}]})
+        raise SystemExit("viewer was allowed to bulk edit ACL rows")
+    except PermissionError:
+        pass
     runtime_status = module._runtime_status()
     if not runtime_status.get("agent_tokens") or runtime_status.get("agent_token_mode") not in {"dual", "strict", "legacy"}:
         raise SystemExit(f"runtime status did not include agent token inventory/mode: {runtime_status}")
@@ -368,12 +614,36 @@ resources:
     backup = module._runtime_backup_create({"include_token_store": False}, "admin")
     if backup.get("status") != "created" or not Path(backup.get("archive", "")).exists():
         raise SystemExit(f"runtime backup was not created: {backup}")
+    pg_plan = module._postgres_migration_plan({"dsn": "postgresql://user:pass@db.example/gov"}, "admin")
+    if pg_plan.get("status") != "ready" or not pg_plan.get("tables") or pg_plan.get("requires_backup") is not True:
+        raise SystemExit(f"Postgres migration plan did not enumerate SQLite state safely: {pg_plan}")
+    pg_migration = module._postgres_migration_run({"dsn": "postgresql://user:pass@db.example/gov", "dry_run": True, "include_token_store": False}, "admin")
+    if pg_migration.get("status") != "prepared" or not pg_migration.get("backup", {}).get("archive") or not Path(pg_migration.get("script_path", "")).exists():
+        raise SystemExit(f"Postgres migration did not create backup and migration script: {pg_migration}")
+    script_text = Path(pg_migration["script_path"]).read_text(encoding="utf-8")
+    if "CREATE TABLE IF NOT EXISTS users" not in script_text or "INSERT INTO users" not in script_text or "COMMIT;" not in script_text:
+        raise SystemExit("Postgres migration script is missing table DDL/data transaction markers")
     with module._control_db() as conn:
         if not conn.execute("SELECT COUNT(*) FROM runtime_backups").fetchone()[0]:
             raise SystemExit("runtime backup was not recorded in SQLite")
     post_backup_status = module._runtime_status()
     if not post_backup_status.get("backups"):
         raise SystemExit(f"runtime status did not include backup inventory: {post_backup_status}")
+    schedule = module._runtime_backup_schedule({"enabled": True, "cron": "17 3 * * *", "include_token_store": False}, "admin")
+    if schedule.get("status") != "prepared" or schedule.get("enabled") is not False or schedule.get("configured") is not True or schedule.get("installed") is not False:
+        raise SystemExit(f"runtime backup schedule incorrectly reported active installation: {schedule}")
+    schedule_status = module._runtime_backup_schedule_status()
+    if schedule_status.get("enabled") is not False or schedule_status.get("configured") is not True or "operator" not in str(schedule_status.get("message") or "").lower():
+        raise SystemExit(f"runtime backup schedule status did not distinguish prepared vs installed: {schedule_status}")
+    installer_text = (PROJECT_DIR / "scripts" / "install_systemd.sh").read_text(encoding="utf-8")
+    if "seed_state_file" not in installer_text or "if [[ ! -e \"$dest\" ]]" not in installer_text:
+        raise SystemExit("systemd installer does not preserve existing UI-managed policy state")
+    for destructive_seed in [
+        'install -m 0660 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/google-governance-policy.yaml"',
+        'install -m 0640 -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" "${PROJECT_DIR}/generated/profile_policy.json"',
+    ]:
+        if destructive_seed in installer_text:
+            raise SystemExit(f"systemd installer still unconditionally overwrites UI state: {destructive_seed}")
 
     acl_sync = module._ensure_workspace_acl_resources(
         "new_workspace",
@@ -400,9 +670,21 @@ resources:
         raise SystemExit("ACL rows do not expose the profile/token route")
 
     inventory = module._workspace_access_inventory()
-    if len(inventory.get("items", [])) != 1 or not inventory["items"][0]["has_refresh_token"]:
+    primary_items = [item for item in inventory.get("items", []) if item.get("account_alias") == "workspace_primary"]
+    if len(primary_items) != 1 or not primary_items[0]["has_refresh_token"]:
         raise SystemExit(f"bad workspace access inventory: {inventory}")
     client_secret = {"installed": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"]}}
+    for bad_secret in [
+        {"installed": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "http://127.0.0.1:9/authorize", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["http://localhost"]}},
+        {"installed": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth", "token_uri": "http://127.0.0.1:9/token", "redirect_uris": ["http://localhost"]}},
+        {"web": {"client_id": "oauth-client", "client_secret": "oauth-secret", "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth", "token_uri": "https://oauth2.googleapis.com/token", "redirect_uris": ["https://example.test/callback"]}},
+    ]:
+        try:
+            module._parse_client_secret(json.dumps(bad_secret))
+        except ValueError:
+            pass
+        else:
+            raise SystemExit(f"OAuth parser accepted unsafe/non-desktop client secret: {bad_secret}")
     try:
         module._workspace_access_create_request({"account_alias": "workspace_primary", "client_secret_json": json.dumps(client_secret)}, "admin")
         raise SystemExit("OAuth start accepted missing Workspace Name")
@@ -414,22 +696,71 @@ resources:
         raise SystemExit(f"bad workspace OAuth start: {create_req}")
     if "client_secret" in json.dumps(create_req):
         raise SystemExit("OAuth start leaked client secret")
+    class FakeBodyHandler:
+        def __init__(self, body: bytes):
+            self.headers = {"Content-Length": str(len(body))}
+            self.rfile = io.BytesIO(body)
+    old_control_max_body = module.MAX_JSON_BODY_BYTES
+    setattr(module, "MAX_JSON_BODY_BYTES", 8)
+    try:
+        try:
+            module._read_json_body(FakeBodyHandler(b'{"too":"large"}'))
+        except ValueError as exc:
+            if "too large" not in str(exc):
+                raise SystemExit(f"control request body limit failed with unclear error: {exc}")
+        else:
+            raise SystemExit("control request body limit accepted oversized JSON")
+    finally:
+        setattr(module, "MAX_JSON_BODY_BYTES", old_control_max_body)
+    class FakeOidcTokenResponse:
+        def __enter__(self): return self
+        def __exit__(self, *args): return False
+        def read(self): return json.dumps({"id_token": "eyJhbGciOiJub25lIiwia2lkIjoiayJ9.eyJpc3MiOiJodHRwczovL29pZGMuZXhhbXBsZSIsImF1ZCI6Im9pZGMtY2xpZW50IiwiZXhwIjo5OTk5OTk5OTk5LCJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJub25jZSI6Im4ifQ."}).encode()
+    old_oidc_urlopen = module.urllib.request.urlopen
+    setattr(module.urllib.request, "urlopen", lambda req, timeout=20: FakeOidcTokenResponse())
+    try:
+        try:
+            module._oidc_userinfo({"issuer_url": "https://oidc.example", "client_id": "oidc-client", "client_secret": "secret", "redirect_uri": "http://localhost/callback"}, {"issuer": "https://oidc.example", "token_endpoint": "https://oidc.example/token"}, "code", "n")
+        except (ValueError, PermissionError):
+            pass
+        else:
+            raise SystemExit("OIDC accepted an unsigned id_token fallback")
+    finally:
+        setattr(module.urllib.request, "urlopen", old_oidc_urlopen)
     if "Agent Identity-to-token ACL mapping" not in create_req.get("message", ""):
         raise SystemExit(f"OAuth start message missing Agent Identity mapping hint: {create_req}")
     if not {"openid", "email", "profile"}.issubset(set(create_req.get("scopes", []))):
         raise SystemExit(f"OAuth start did not request identity scopes for email discovery: {create_req.get('scopes')}")
+    try:
+        module._workspace_access_create_request({"account_alias": "viewer_oauth_workspace", "client_secret_json": json.dumps(client_secret), "token_label": "Viewer OAuth Workspace"}, "viewer-one")
+        raise SystemExit("viewer was allowed to start Workspace OAuth setup")
+    except PermissionError:
+        pass
     if module._oauth_account_alias("", "Example Account") != "example_account":
         raise SystemExit("friendly token label was not used as email-missing account alias fallback")
-    mapped = module._workspace_access_map_profiles({"token_id": "workspace_primary/google_token.json", "profiles": ["assistant"]}, "admin")
-    if mapped.get("status") != "mapped" or mapped.get("profiles") != ["assistant"]:
+    admin_token_id = next((item.get("id") for item in admin_workspace_view.get("items", []) if item.get("account_alias") == "admin_workspace"), "")
+    mapped = module._workspace_access_map_profiles({"token_id": admin_token_id, "profiles": ["agent-a"]}, "admin")
+    if mapped.get("status") != "mapped" or mapped.get("profiles") != ["agent-a"]:
         raise SystemExit(f"bad profile-token mapping result: {mapped}")
-    if mapped.get("routes", {}).get("assistant") != "assistant/workspace_primary":
+    if mapped.get("routes", {}).get("agent-a") != "agent-a/admin_workspace":
         raise SystemExit(f"profile-token mapping did not return the account route: {mapped}")
     mapped_snapshot = module._snapshot()
-    if not any(row["profile"] == "assistant" and row["action"] == "gmail.search_gmail_messages" and row.get("token_route") == "assistant/workspace_primary" for row in mapped_snapshot["rules"]):
-        raise SystemExit("profile-token mapping did not create profile-level Gmail ACL row")
-    if not any(route.get("profile") == "assistant" and route.get("route") == "assistant/workspace_primary" and route.get("account_alias") == "workspace_primary" for route in mapped_snapshot.get("workspace_routes", [])):
+    admin_agent_row = next((row for row in mapped_snapshot["rules"] if row["profile"] == "agent-a" and row["action"] == "gmail.search_gmail_messages" and row.get("token_route") == "agent-a/admin_workspace"), None)
+    if not admin_agent_row:
+        raise SystemExit("profile-token mapping did not create route-scoped Gmail ACL row")
+    if admin_agent_row.get("scope") != "override" or admin_agent_row.get("resource_alias") in {"", "__profile_default__"}:
+        raise SystemExit(f"mapped ACL row was not route/resource scoped: {admin_agent_row}")
+    if not any(route.get("profile") == "agent-a" and route.get("route") == "agent-a/admin_workspace" and route.get("account_alias") == "admin_workspace" for route in mapped_snapshot.get("workspace_routes", [])):
         raise SystemExit(f"profile-token mapping did not expose workspace route inventory: {mapped_snapshot.get('workspace_routes')}")
+    admin_agent_apply = module._apply_policy_change({"profile": "agent-a", "scope": admin_agent_row["scope"], "resource_alias": admin_agent_row["resource_alias"], "action": admin_agent_row["action"], "decision": "allow", "actor": "admin", "reason": "admin route isolation"})
+    if admin_agent_apply.get("status") != "applied":
+        raise SystemExit(f"admin could not edit own route-scoped ACL row: {admin_agent_apply}")
+    isolation_policy = json.loads(runtime.read_text(encoding="utf-8"))
+    viewer_resource_alias = "gmail_viewer_workspace"
+    if isolation_policy["profile_policy"]["agent-a"].get("defaults", {}).get("gmail.search_gmail_messages") == "allow":
+        raise SystemExit("route-scoped admin edit incorrectly mutated agent-a profile defaults")
+    if isolation_policy["profile_policy"]["agent-a"].get("resource_overrides", {}).get(viewer_resource_alias, {}).get("gmail.search_gmail_messages") == "allow":
+        raise SystemExit("admin KTGmail route ACL edit leaked into viewer Family Gmail route")
 
     # google-auth is optional for the control plane token test; the stdlib refresh fallback should be used.
     calls = []
@@ -469,13 +800,13 @@ resources:
     runtime_policy = json.loads(runtime.read_text(encoding="utf-8"))
     if runtime_policy.get("mode") != "enforce" or runtime_policy.get("effective_behavior") != "acl_enforced":
         raise SystemExit("runtime policy not enforcing")
-    unmapped = module._workspace_access_unmap_profiles({"token_id": "workspace_primary/google_token.json", "profiles": ["assistant"]}, "admin")
-    if unmapped.get("status") != "unmapped" or unmapped.get("profiles") != ["assistant"]:
+    unmapped = module._workspace_access_unmap_profiles({"token_id": admin_token_id, "profiles": ["agent-a"]}, "admin")
+    if unmapped.get("status") != "unmapped" or unmapped.get("profiles") != ["agent-a"]:
         raise SystemExit(f"bad profile-token unmapping result: {unmapped}")
     after_unmap = module._snapshot()
-    if any(route.get("profile") == "assistant" and route.get("account_alias") == "workspace_primary" for route in after_unmap.get("workspace_routes", [])):
+    if any(route.get("profile") == "agent-a" and route.get("account_alias") == "admin_workspace" for route in after_unmap.get("workspace_routes", [])):
         raise SystemExit("profile-token unmapping did not revoke the route relationship")
-    if any(row.get("profile") == "assistant" and row.get("account_alias") == "workspace_primary" for row in after_unmap.get("rules", [])):
+    if any(row.get("profile") == "agent-a" and row.get("account_alias") == "admin_workspace" for row in after_unmap.get("rules", [])):
         raise SystemExit("profile-token unmapping did not remove Workspace ACL rows for the revoked profile")
     assistant_revoke = module._agent_token_revoke({"id": assistant_agent_token["id"]}, "admin")
     if assistant_revoke.get("status") != "revoked" or assistant_revoke.get("remaining_active_tokens") != 0 or not assistant_revoke.get("identity_cleanup", {}).get("changed"):
@@ -487,11 +818,12 @@ resources:
         raise SystemExit("revoked agent identity ACL rows remained visible")
     if any(route.get("profile") == "assistant" for route in after_assistant_revoke.get("workspace_routes", [])):
         raise SystemExit("revoked agent identity workspace routes remained visible")
+    module._assign_user_agent_entities({"username": "admin", "assigned_agent_entities": ["agent-a", "operations"]}, "admin")
     module._store_workspace_token(
         "google-workspace",
         "workspace-full.json",
         {"client_id": "test-client", "refresh_token": "refresh2", "scopes": ["gmail"]},
-        {"token_label": "Example Account", "email": ""},
+        {"token_label": "Example Account", "email": "", "owner_username": "admin"},
     )
     promoted = module._workspace_access_map_profiles({"token_id": "google-workspace/workspace-full.json", "profiles": ["operations"]}, "admin")
     if promoted.get("account_alias") != "example_account" or promoted.get("routes", {}).get("operations") != "operations/example_account":

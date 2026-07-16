@@ -6,7 +6,6 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY scripts/unified_google_gateway.py scripts/google_governance_control_plane.py scripts/governance_policy.py /app/
-COPY google-governance-policy.yaml google-resource-registry.yaml /app/config/
 COPY generated/profile_policy.json /app/config/generated/profile_policy.json
 COPY generated/ui/control-plane/google-agent-gateway-logo.jpg /app/config/generated/ui/control-plane/google-agent-gateway-logo.jpg
 COPY packaging/docker-entrypoint.sh /app/docker-entrypoint.sh

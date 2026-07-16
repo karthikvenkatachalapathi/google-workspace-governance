@@ -9,8 +9,10 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import sqlite3
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +32,7 @@ def load_gateway():
     spec.loader.exec_module(module)
     tmp = Path(tempfile.mkdtemp(prefix="google-gov-approval-"))
     setattr(module, "APPROVAL_STORE_PATH", tmp / "approval-events.jsonl")
+    setattr(module, "APPROVAL_DB_PATH", tmp / "approval-state.sqlite")
     setattr(module, "AUDIT_PATH", tmp / "audit.jsonl")
     os.environ["GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET"] = "approval-test-secret"
     return module, tmp
@@ -76,6 +79,58 @@ def main() -> None:
     os.environ.pop("GOOGLE_GOVERNANCE_APPROVAL_WEBHOOK_TOKEN", None)
     if gateway._approval_webhook_token() == "user_selected_webhook_token_123":
         raise SystemExit("webhook token did not fall back after env override removal")
+    scoped_db = tmp / "scoped-approvals.sqlite"
+    setattr(gateway, "TOKEN_DB_PATH", scoped_db)
+    with sqlite3.connect(scoped_db) as conn:
+        conn.execute("CREATE TABLE approval_tenants(id TEXT PRIMARY KEY,label TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1)")
+        conn.execute("CREATE TABLE users(username TEXT PRIMARY KEY,role TEXT NOT NULL DEFAULT 'viewer',enabled INTEGER NOT NULL DEFAULT 1)")
+        conn.execute("CREATE TABLE approval_tenant_bots(tenant_id TEXT PRIMARY KEY,bot_token TEXT NOT NULL DEFAULT '',public_base_url TEXT NOT NULL DEFAULT '',webhook_token TEXT NOT NULL DEFAULT '',enabled INTEGER NOT NULL DEFAULT 1)")
+        conn.execute("CREATE TABLE approval_tenant_approvers(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id TEXT NOT NULL,label TEXT NOT NULL DEFAULT '',chat_id TEXT NOT NULL,enabled INTEGER NOT NULL DEFAULT 1)")
+        conn.execute("CREATE TABLE approval_tenant_agent_acl(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id TEXT NOT NULL,agent_id TEXT NOT NULL DEFAULT '*',enabled INTEGER NOT NULL DEFAULT 1)")
+        conn.execute("ALTER TABLE approval_tenants ADD COLUMN owner_username TEXT NOT NULL DEFAULT ''")
+        conn.execute("INSERT INTO users(username,role,enabled) VALUES('admin','admin',1),('viewer','viewer',1)")
+        conn.execute("INSERT INTO approval_tenants(id,label,owner_username,enabled) VALUES('tenant-alpha','Tenant Alpha Governor','admin',1),('tenant-beta','Tenant Beta Approver','viewer',1)")
+        conn.execute("INSERT INTO approval_tenant_bots(tenant_id,bot_token,enabled) VALUES('tenant-alpha','bot-k',1),('tenant-beta','bot-t',1)")
+        conn.execute("INSERT INTO approval_tenant_approvers(tenant_id,label,chat_id,enabled) VALUES('tenant-alpha','Tenant Alpha Governor','111',1),('tenant-beta','Tenant Beta Approver','222',1)")
+        conn.execute("INSERT INTO approval_tenant_agent_acl(tenant_id,agent_id,enabled) VALUES('tenant-alpha','*',1),('tenant-beta','daily-assistant',1)")
+    scoped_targets = gateway._approval_channel_rows("daily-assistant")
+    if {row.get("tenant_id") for row in scoped_targets} != {"tenant-alpha"}:
+        raise SystemExit(f"non-admin approval tenant leaked into scoped delivery targets: {scoped_targets}")
+    all_targets = gateway._approval_channel_rows("")
+    if {row.get("tenant_id") for row in all_targets} != {"tenant-alpha"}:
+        raise SystemExit(f"approval channel token discovery included non-admin tenants: {all_targets}")
+
+    import governance_policy
+    policy_path = tmp / "profile-policy.json"
+    policy_path.write_text(json.dumps({
+        "schema_version": 2,
+        "mode": "enforce",
+        "operation_classes": {},
+        "profiles": {
+            "daily-assistant": {
+                "account_alias": "workspace-secondary",
+                "default_route_alias": "daily-assistant/workspace-secondary",
+                "connected_account_aliases": ["workspace-primary", "workspace-secondary"],
+            }
+        },
+        "profile_policy": {
+            "daily-assistant": {
+                "defaults": {"gmail.send_gmail_message": "ask"},
+                "resource_overrides": {"gmail_workspace-secondary": {"gmail.send_gmail_message": "deny"}},
+            }
+        },
+        "global_denies": [],
+    }), encoding="utf-8")
+    governance_policy.POLICY_PATH = policy_path
+    governance_policy._POLICY_CACHE = None
+    governance_policy._POLICY_MTIME = None
+    resolved_resource = governance_policy.resource_for("daily-assistant", "gmail.send_gmail_message", {"token_route": "default"})
+    if resolved_resource != "gmail_workspace-secondary":
+        raise SystemExit(f"default route used stale connected account instead of active account_alias: {resolved_resource}")
+    decision = governance_policy.classify("daily-assistant", "gmail.send_gmail_message", resolved_resource)
+    if decision.get("decision") != "deny" or "resource_override" not in str(decision.get("decision_source")):
+        raise SystemExit(f"Tanya Gmail send should be denied by active resource override, not escalated to approval: {decision}")
+
     payload = {
         "profile": "agent-a",
         "workflow_intent": "mcp.governed_google",
@@ -194,7 +249,7 @@ def main() -> None:
             "agent-a",
             {"approval_admin_secret": "approval-test-secret", "approval_id": approval_id3, "approver": "legacy_admin"},
         )
-    except ValueError:
+    except (PermissionError, ValueError):
         pass
     else:
         raise SystemExit("expired approval was executable")
@@ -280,6 +335,49 @@ def main() -> None:
         raise SystemExit(f"approved workspace tool did not execute original call: {auto_result5} {fake_session5.calls}")
     if gateway._approval_state().get(approval_id5, {}).get("state") != "consumed":
         raise SystemExit(f"approved workspace tool was not consumed: {gateway._approval_state().get(approval_id5)}")
+
+    payload_concurrent = dict(payload)
+    payload_concurrent.update({"request_id": "approval-test-concurrency", "to": "race@example.com", "subject": "Race", "body": "Race body"})
+    blocked_concurrent = gateway._governance_blocked("agent-a", dict(payload_concurrent))
+    approval_concurrent = blocked_concurrent.get("approval_id")
+    fake_session_concurrent = FakeSession()
+    setattr(gateway, "_session", lambda profile, route=None: fake_session_concurrent)
+    concurrent_results: list[tuple[str, Any]] = []
+    def run_concurrent_execute():
+        try:
+            concurrent_results.append(("ok", gateway._approval_approve_and_execute("agent-a", {"approval_admin_secret": "approval-test-secret", "approval_id": approval_concurrent, "approver": "legacy_admin"})))
+        except Exception as exc:
+            concurrent_results.append(("err", type(exc).__name__))
+    workers = [threading.Thread(target=run_concurrent_execute) for _ in range(20)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=5)
+    if len([item for item in concurrent_results if item[0] == "ok"]) != 1 or len(fake_session_concurrent.calls) != 1 or gateway._approval_state().get(approval_concurrent, {}).get("state") != "consumed":
+        raise SystemExit(f"concurrent approve-and-execute was not exactly-once: {concurrent_results} {fake_session_concurrent.calls} {gateway._approval_state().get(approval_concurrent)}")
+    with sqlite3.connect(gateway.APPROVAL_DB_PATH) as claim_conn:
+        db_state = claim_conn.execute("SELECT state, COUNT(*) FROM approvals WHERE approval_id=? GROUP BY state", (approval_concurrent,)).fetchone()
+        claimed_count = claim_conn.execute("SELECT COUNT(*) FROM approval_events WHERE approval_id=? AND event='claimed'", (approval_concurrent,)).fetchone()[0]
+    if db_state != ("consumed", 1) or claimed_count != 1:
+        raise SystemExit(f"SQLite approval claim was not exactly-once: state={db_state} claimed_events={claimed_count}")
+
+    old_max_body = gateway.MAX_JSON_BODY_BYTES
+    setattr(gateway, "MAX_JSON_BODY_BYTES", 8)
+    server_size = ThreadingHTTPServer(("127.0.0.1", 0), gateway.Handler)
+    thread_size = threading.Thread(target=server_size.serve_forever, daemon=True)
+    thread_size.start()
+    try:
+        try:
+            urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{server_size.server_port}/v1/google/request", data=b'{"too":"large"}', headers={"Authorization": "Bearer missing", "Content-Type": "application/json"}, method="POST"), timeout=5)
+        except urllib.error.HTTPError as exc:
+            if exc.code != 413:
+                raise SystemExit(f"oversized gateway request returned wrong status: {exc.code} {exc.read().decode('utf-8')}")
+        else:
+            raise SystemExit("oversized gateway request was accepted")
+    finally:
+        server_size.shutdown()
+        thread_size.join(timeout=5)
+        setattr(gateway, "MAX_JSON_BODY_BYTES", old_max_body)
 
     payload6 = dict(payload)
     payload6.update({

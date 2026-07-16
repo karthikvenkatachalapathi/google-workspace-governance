@@ -255,6 +255,7 @@ def agent_token() -> str | None:
     return token.strip() if token and token.strip() else None
 
 
+
 def gateway_post(path: str, payload: dict[str, Any]) -> Any:
     profile = active_profile()
     identity_token = agent_token()

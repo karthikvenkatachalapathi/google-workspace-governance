@@ -11,8 +11,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -42,17 +44,24 @@ CONFIG_BASE = Path(os.getenv("GOOGLE_GOVERNANCE_CONFIG_DIR", str(SELF_CONTAINED_
 LOG_BASE = Path(os.getenv("GOOGLE_GOVERNANCE_LOG_DIR", str(SELF_CONTAINED_BASE / "logs")))
 TOKEN_ROOT = Path(os.getenv("GOOGLE_GOVERNANCE_ACCOUNT_TOKEN_ROOT", str(STATE_BASE / "tokens/accounts")))
 TOKEN_DB_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_TOKEN_DB_PATH", os.getenv("GOOGLE_GOVERNANCE_CONTROL_USERS_DB_PATH", str(STATE_BASE / "control/control_users.sqlite"))))
+DATABASE_BACKEND = os.getenv("GOOGLE_GOVERNANCE_DB_BACKEND", "sqlite").strip().lower() or "sqlite"
+DATABASE_URL = os.getenv("GOOGLE_GOVERNANCE_DATABASE_URL", "").strip()
 API_TOKEN_HASHES_ENV = "GOOGLE_GOVERNANCE_API_TOKEN_HASHES"
 API_TOKENS_ENV = "GOOGLE_GOVERNANCE_API_TOKENS"  # plaintext compatibility only; prefer hashes
 AGENT_TOKEN_HEADER = "X-Google-Governance-Agent-Token"
 AGENT_TOKEN_MODE_ENV = "GOOGLE_GOVERNANCE_AGENT_TOKEN_MODE"  # dual | strict | legacy
 AUDIT_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_AUDIT_LOG", str(LOG_BASE / "gateway-audit.jsonl")))
 APPROVAL_STORE_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_STORE", str(STATE_BASE / "approvals/approval-events.jsonl")))
+APPROVAL_DB_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_DB", str(APPROVAL_STORE_PATH.with_suffix(".sqlite"))))
 APPROVAL_ADMIN_SECRET_PATH = Path(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_ADMIN_SECRET_PATH", str(CONFIG_BASE / "approval_admin_secret")))
 APPROVAL_DEFAULT_TTL_SECONDS = int(os.getenv("GOOGLE_GOVERNANCE_APPROVAL_DEFAULT_TTL_SECONDS", "900"))
 APPROVAL_PUBLIC_BASE_URL = os.getenv("GOOGLE_GOVERNANCE_APPROVAL_PUBLIC_BASE_URL", "").rstrip("/")
+APPROVAL_OWNER_UNRESOLVED = "__workspace_owner_unresolved__"
+MAX_JSON_BODY_BYTES = int(os.getenv("GOOGLE_GOVERNANCE_MAX_JSON_BODY_BYTES", str(1024 * 1024)))
 START_TIME = time.time()
 _METRIC_LOCK = Lock()
+_APPROVAL_EXECUTION_LOCK = Lock()
+_APPROVAL_WORKER_ID = f"pid-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 _AUDIT_TOTAL: Counter[tuple[str, str, str, str]] = Counter()
 _LATENCY_SUM_MS: Counter[tuple[str, str, str, str]] = Counter()
 _LATENCY_COUNT: Counter[tuple[str, str, str, str]] = Counter()
@@ -119,6 +128,34 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: Any) -
     handler.send_header("Content-Length", str(len(raw)))
     handler.end_headers()
     handler.wfile.write(raw)
+
+
+class RequestBodyTooLarge(ValueError):
+    pass
+
+
+def _request_body_length(handler: BaseHTTPRequestHandler) -> int:
+    try:
+        return int(handler.headers.get("Content-Length", "0"))
+    except ValueError as exc:
+        raise ValueError("invalid Content-Length") from exc
+
+
+def _enforce_json_body_limit(handler: BaseHTTPRequestHandler) -> int:
+    length = _request_body_length(handler)
+    if length > MAX_JSON_BODY_BYTES:
+        raise RequestBodyTooLarge(f"request body too large; limit is {MAX_JSON_BODY_BYTES} bytes")
+    return length
+
+
+def _read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, Any]:
+    length = _enforce_json_body_limit(handler)
+    if length <= 0:
+        return {}
+    parsed = json.loads(handler.rfile.read(length).decode("utf-8") or "{}")
+    if not isinstance(parsed, dict):
+        raise ValueError("JSON body must be an object")
+    return parsed
 
 
 def _text_response(handler: BaseHTTPRequestHandler, status: int, body: str, content_type: str = "text/plain; charset=utf-8") -> None:
@@ -387,6 +424,21 @@ def _open_sqlite(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
     return conn
 
 
+def _database_backend_status() -> dict[str, Any]:
+    configured = DATABASE_BACKEND if DATABASE_BACKEND in {"sqlite", "postgres", "postgresql", "auto"} else "sqlite"
+    active = "postgres" if configured in {"postgres", "postgresql"} or (configured == "auto" and bool(DATABASE_URL)) else "sqlite"
+    driver = "psycopg" if importlib.util.find_spec("psycopg") else ("psycopg2" if importlib.util.find_spec("psycopg2") else "")
+    return {
+        "supported_backends": ["sqlite", "postgres"],
+        "postgres_support_enabled": True,
+        "postgres_driver_available": bool(driver),
+        "postgres_driver": driver,
+        "configured_backend": DATABASE_BACKEND,
+        "active_backend": active,
+        "database_url_configured": bool(DATABASE_URL),
+    }
+
+
 def _approval_request_hash(payload: dict[str, Any]) -> str:
     """Hash approval-relevant raw payload fields without storing raw values.
 
@@ -394,7 +446,7 @@ def _approval_request_hash(payload: dict[str, Any]) -> str:
     retry (new request_id, no explanatory reason, different client wrapper), so it
     is deliberately excluded. The binding is the actor/action/resource/target.
     """
-    volatile = {"approval_id", "request_id", "reason", "client", "workflow_intent", "workflow", "_approval_request_hash", "_sealed_retry_payload"}
+    volatile = {"approval_id", "request_id", "reason", "client", "workflow_intent", "workflow", "_approval_request_hash", "_sealed_retry_payload", "_approval_execution_claimed"}
     stable = {str(k): v for k, v in payload.items() if str(k) not in volatile and not str(k).endswith("_sha256")}
     return hashlib.sha256(_canonical_json(stable).encode("utf-8")).hexdigest()
 
@@ -418,6 +470,172 @@ def _append_approval_event(event: dict[str, Any]) -> None:
     row = {"ts": datetime.now(timezone.utc).isoformat(), **event}
     with APPROVAL_STORE_PATH.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    try:
+        _approval_db_apply_event(row)
+    except sqlite3.Error:
+        # JSONL remains the durable compatibility/audit fallback if SQLite is temporarily unavailable.
+        pass
+
+
+def _approval_db_conn() -> sqlite3.Connection:
+    APPROVAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return _open_sqlite(APPROVAL_DB_PATH)
+
+
+def _approval_db_init(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS approvals (
+            approval_id TEXT PRIMARY KEY,
+            state TEXT NOT NULL,
+            profile TEXT NOT NULL DEFAULT '',
+            action TEXT NOT NULL DEFAULT '',
+            resource_alias TEXT NOT NULL DEFAULT '',
+            reason TEXT NOT NULL DEFAULT '',
+            request_hash TEXT NOT NULL DEFAULT '',
+            safe_metadata_json TEXT NOT NULL DEFAULT '{}',
+            approval_targets_json TEXT NOT NULL DEFAULT '[]',
+            approval_target_count INTEGER NOT NULL DEFAULT 0,
+            expires_at TEXT NOT NULL DEFAULT '',
+            retry_payload_sealed TEXT NOT NULL DEFAULT '',
+            retry_payload_available INTEGER NOT NULL DEFAULT 0,
+            decision TEXT NOT NULL DEFAULT '',
+            approver TEXT NOT NULL DEFAULT '',
+            decision_reason TEXT NOT NULL DEFAULT '',
+            decision_channel TEXT NOT NULL DEFAULT '',
+            decision_tenant_id TEXT NOT NULL DEFAULT '',
+            approved_until TEXT NOT NULL DEFAULT '',
+            claimed_by TEXT NOT NULL DEFAULT '',
+            claimed_at TEXT NOT NULL DEFAULT '',
+            consumed_at TEXT NOT NULL DEFAULT '',
+            failure_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS approval_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            approval_id TEXT NOT NULL DEFAULT '',
+            event TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT '',
+            worker_id TEXT NOT NULL DEFAULT '',
+            event_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_approvals_request_hash_state ON approvals(request_hash,state)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_approvals_state_expires ON approvals(state,expires_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_approval_events_approval_id ON approval_events(approval_id)")
+    if conn.execute("SELECT COUNT(*) FROM approval_events").fetchone()[0] == 0 and APPROVAL_STORE_PATH.exists():
+        for legacy_event in _approval_events():
+            _approval_db_apply_event(legacy_event, conn=conn, record_event=True)
+    conn.commit()
+
+
+def _approval_db_apply_event(event: dict[str, Any], *, conn: sqlite3.Connection | None = None, record_event: bool = True) -> None:
+    own_conn = conn is None
+    if conn is None:
+        conn = _approval_db_conn()
+        _approval_db_init(conn)
+    approval_id = str(event.get("approval_id") or "")
+    event_name = str(event.get("event") or "")
+    now = str(event.get("ts") or datetime.now(timezone.utc).isoformat())
+    try:
+        if record_event:
+            conn.execute(
+                "INSERT INTO approval_events(approval_id,event,state,worker_id,event_json,created_at) VALUES(?,?,?,?,?,?)",
+                (approval_id, event_name, str(event.get("state") or event.get("decision") or ""), str(event.get("worker_id") or _APPROVAL_WORKER_ID), json.dumps(event, ensure_ascii=False, sort_keys=True), now),
+            )
+        if not approval_id:
+            if own_conn:
+                conn.commit()
+            return
+        if event_name == "requested":
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO approvals(
+                    approval_id,state,profile,action,resource_alias,reason,request_hash,safe_metadata_json,
+                    approval_targets_json,approval_target_count,expires_at,retry_payload_sealed,retry_payload_available,
+                    created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    approval_id,
+                    str(event.get("state") or "pending"),
+                    str(event.get("profile") or ""),
+                    str(event.get("action") or ""),
+                    str(event.get("resource_alias") or ""),
+                    str(event.get("reason") or ""),
+                    str(event.get("request_hash") or ""),
+                    json.dumps(event.get("safe_metadata") or {}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(event.get("approval_targets") or [], ensure_ascii=False, sort_keys=True),
+                    int(event.get("approval_target_count") or 0),
+                    str(event.get("expires_at") or ""),
+                    json.dumps(event.get("retry_payload_sealed") or {}, ensure_ascii=False, sort_keys=True),
+                    1 if event.get("retry_payload_available") else 0,
+                    now,
+                    now,
+                ),
+            )
+        elif event_name == "decided":
+            decision = str(event.get("decision") or "denied")
+            conn.execute(
+                """
+                UPDATE approvals
+                SET state=CASE WHEN state IN ('pending','request_edit') THEN ? ELSE state END,
+                    decision=?, approver=?, decision_reason=?, decision_channel=?, decision_tenant_id=?,
+                    approved_until=?, updated_at=?
+                WHERE approval_id=?
+                """,
+                (decision, decision, str(event.get("approver") or ""), str(event.get("decision_reason") or ""), str(event.get("decision_channel") or ""), str(event.get("tenant_id") or ""), str(event.get("approved_until") or ""), now, approval_id),
+            )
+        elif event_name == "claimed":
+            conn.execute(
+                "UPDATE approvals SET state='executing', claimed_by=?, claimed_at=?, updated_at=? WHERE approval_id=?",
+                (str(event.get("worker_id") or _APPROVAL_WORKER_ID), now, now, approval_id),
+            )
+        elif event_name == "consumed":
+            conn.execute(
+                "UPDATE approvals SET state='consumed', consumed_at=?, updated_at=? WHERE approval_id=?",
+                (now, now, approval_id),
+            )
+        elif event_name == "execution_failed":
+            conn.execute(
+                """
+                UPDATE approvals
+                SET state=?, failure_count=failure_count+1, last_error=?, updated_at=?
+                WHERE approval_id=?
+                """,
+                (str(event.get("state") or "failed_retryable"), str(event.get("error") or ""), now, approval_id),
+            )
+        if own_conn:
+            conn.commit()
+    finally:
+        if own_conn:
+            conn.close()
+
+
+def _approval_row_to_state(row: sqlite3.Row) -> dict[str, Any]:
+    item = dict(row)
+    item["safe_metadata"] = json.loads(str(item.pop("safe_metadata_json", "{}") or "{}"))
+    item["approval_targets"] = json.loads(str(item.pop("approval_targets_json", "[]") or "[]"))
+    sealed_raw = item.get("retry_payload_sealed")
+    if isinstance(sealed_raw, str):
+        try:
+            item["retry_payload_sealed"] = json.loads(sealed_raw) if sealed_raw else {}
+        except json.JSONDecodeError:
+            item["retry_payload_sealed"] = {}
+    item["retry_payload_available"] = bool(item.get("retry_payload_available"))
+    item["history"] = []
+    if _approval_is_expired(item):
+        item["state"] = "expired"
+        item["expired_at"] = item.get("expires_at")
+    return item
 
 
 def _approval_delivery_rules_enabled() -> bool:
@@ -425,7 +643,7 @@ def _approval_delivery_rules_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
-def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
+def _approval_channel_rows(profile: str, owner_username: str = "") -> list[dict[str, Any]]:
     if not _approval_delivery_rules_enabled():
         return []
     if not TOKEN_DB_PATH.exists():
@@ -433,9 +651,11 @@ def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
     try:
         conn = _open_sqlite(TOKEN_DB_PATH, read_only=True)
         try:
-            rows = conn.execute(
-                """
-                SELECT a.id,a.tenant_id,t.label AS tenant_label,a.label,a.chat_id,
+            tenant_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(approval_tenants)").fetchall()}
+            owner_expr = "COALESCE(t.owner_username,'')" if "owner_username" in tenant_cols else "''"
+            base_sql = f"""
+                SELECT a.id,a.tenant_id,t.label AS tenant_label,{owner_expr} AS owner_username,
+                       a.label,a.chat_id,
                        COALESCE(b.enabled,1) AS bot_enabled,
                        COALESCE(b.public_base_url,'') AS button_base_url,
                        COALESCE(b.bot_token,'') AS bot_token,
@@ -446,15 +666,33 @@ def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
                 JOIN approval_tenant_bots b ON b.tenant_id=t.id
                 LEFT JOIN approval_tenant_agent_acl acl ON acl.tenant_id=t.id
                 WHERE t.enabled=1 AND a.enabled=1 AND b.enabled=1
+                  AND (
+                    COALESCE(t.owner_username,'')=''
+                    OR EXISTS (
+                      SELECT 1 FROM users u
+                      WHERE u.username=COALESCE(t.owner_username,'')
+                        AND u.enabled=1
+                        AND u.role='admin'
+                    )
+                  )
+            """
+            params: list[Any] = []
+            owner_username = str(owner_username or "").strip()
+            if owner_username and "owner_username" in tenant_cols:
+                # Legacy compatibility only. Current production approval routing
+                # is admin-owned and agent-entity-scoped; viewer users never own
+                # approval destinations.
+                base_sql += " AND COALESCE(t.owner_username,'')=?"
+                params.append(owner_username)
+            elif profile:
+                base_sql += """
                   AND EXISTS (
                     SELECT 1 FROM approval_tenant_agent_acl m
-                    WHERE m.tenant_id=t.id AND m.enabled=1 AND (m.agent_id='*' OR m.agent_id=? OR ?='')
+                    WHERE m.tenant_id=t.id AND m.enabled=1 AND m.agent_id IN (?, '*')
                   )
-                GROUP BY a.id
-                ORDER BY t.label,a.label
-                """,
-                (profile, profile),
-            ).fetchall()
+                """
+                params.append(profile)
+            rows = conn.execute(base_sql + " GROUP BY a.id ORDER BY t.label,a.label", tuple(params)).fetchall()
             result = [dict(row) for row in rows]
             conn.close()
             return result
@@ -465,10 +703,10 @@ def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
                     """
                     SELECT id,label,chat_id,scope,profile,enabled,button_base_url,bot_token
                     FROM approval_telegram_channels
-                    WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
+                    WHERE enabled=1 AND (?='' OR profile=?)
                     ORDER BY scope DESC, profile, label
                     """,
-                    (profile,),
+                    (profile, profile),
                 ).fetchall()
                 result = [dict(row) for row in rows]
             except sqlite3.OperationalError:
@@ -476,10 +714,10 @@ def _approval_channel_rows(profile: str) -> list[dict[str, Any]]:
                     """
                     SELECT id,label,chat_id,scope,profile,enabled,button_base_url
                     FROM approval_telegram_channels
-                    WHERE enabled=1 AND (scope='all' OR profile=? OR profile='*')
+                    WHERE enabled=1 AND (?='' OR profile=?)
                     ORDER BY scope DESC, profile, label
                     """,
-                    (profile,),
+                    (profile, profile),
                 ).fetchall()
                 result = [dict(row) | {"bot_token": ""} for row in rows]
             conn.close()
@@ -712,7 +950,9 @@ def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]],
             _telegram_callback_response(bot_token, callback_id, "Denied")
             _telegram_edit_callback_message(bot_token, callback, f"❌ Approval status: denied\nApproval: {approval_id}")
     except Exception as exc:
-        _telegram_callback_response(bot_token, callback_id, f"Approval failed: {type(exc).__name__}", True)
+        detail = str(exc).strip()
+        msg = f"Approval failed: {type(exc).__name__}" + (f" - {detail[:120]}" if detail else "")
+        _telegram_callback_response(bot_token, callback_id, msg, True)
         raise
     return {"status": "ok", "approval_id": approval_id, "decision": decision, "result": result}
 
@@ -811,14 +1051,136 @@ def _start_telegram_approval_pollers() -> Event:
     return stop
 
 
-def _approval_notify_targets(profile: str) -> list[dict[str, Any]]:
+def _approval_account_alias_for_payload(payload: dict[str, Any]) -> str:
+    route = str(payload.get("token_route") or "").strip()
+    account_alias = ""
+    if route and route != "default":
+        account_alias = route.split("/", 1)[1] if "/" in route else route
+    if not account_alias:
+        resource_alias = str(payload.get("resource_alias") or "").strip()
+        for prefix, suffix in (
+            ("gmail_", ""),
+            ("calendar_", "_primary"),
+            ("sheets_", "_workspace"),
+            ("docs_", "_workspace"),
+            ("drive_", "_workspace"),
+            ("slides_", "_workspace"),
+            ("contacts_", ""),
+        ):
+            if resource_alias.startswith(prefix) and (not suffix or resource_alias.endswith(suffix)):
+                account_alias = resource_alias[len(prefix):]
+                if suffix:
+                    account_alias = account_alias[:-len(suffix)]
+                break
+    return account_alias.strip()
+
+
+def _approval_alias_norm(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _approval_owner_for_token_route(payload: dict[str, Any]) -> str:
+    """Resolve owner from the concrete Workspace token route/account alias.
+
+    This is the authoritative multi-tenant signal: two users can connect the
+    same Google email, but each user-owned Workspace token has its own
+    account_alias/owner_username row. Telegram approval routing must follow
+    that row, not shared profile ACLs or Google email address.
+    """
+    if not TOKEN_DB_PATH.exists():
+        return ""
+    account_alias = _approval_account_alias_for_payload(payload)
+    if not account_alias:
+        return ""
+    alias_norm = _approval_alias_norm(account_alias)
+    try:
+        with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT owner_username
+                FROM workspace_tokens
+                WHERE revoked_at=''
+                  AND (
+                    account_alias=?
+                    OR lower(replace(replace(account_alias,'-','_'),' ','_'))=?
+                  )
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (account_alias, alias_norm),
+            ).fetchall()
+        owners = sorted({str(row["owner_username"] or "").strip() for row in rows if str(row["owner_username"] or "").strip()})
+        return owners[0] if len(owners) == 1 else ""
+    except sqlite3.Error:
+        return ""
+
+
+def _approval_owner_for_profile(profile: str) -> str:
+    """Resolve the UI user who owns the originating agent/profile identity."""
+    profile = str(profile or "").strip()
+    if not profile or not TOKEN_DB_PATH.exists():
+        return ""
+    try:
+        with _open_sqlite(TOKEN_DB_PATH, read_only=True) as conn:
+            user_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+            if "assigned_agent_entities_json" not in user_cols:
+                return ""
+            rows = conn.execute(
+                "SELECT username,role,assigned_agent_entities_json FROM users WHERE enabled=1 ORDER BY role='admin' DESC, username"
+            ).fetchall()
+        matches: list[str] = []
+        for row in rows:
+            try:
+                assigned = json.loads(row["assigned_agent_entities_json"] or "[]")
+            except json.JSONDecodeError:
+                assigned = []
+            if profile in {str(x).strip() for x in assigned if str(x).strip()}:
+                username = str(row["username"] or "").strip()
+                if username:
+                    matches.append(username)
+        # Only collapse profile -> owner when the profile is unambiguous. Shared
+        # profiles such as daily-assistant may represent both Karthik and Tanya;
+        # in that case approval_tenant_agent_acl must decide the delivery target.
+        unique = sorted(set(matches))
+        return unique[0] if len(unique) == 1 else ""
+    except sqlite3.Error:
+        return ""
+    return ""
+
+
+def _approval_owner_for_payload(profile: str, payload: dict[str, Any]) -> str:
+    """Resolve approval ownership for the current governance mode.
+
+    Current policy is agent-entity-level ACLs: any UI user assigned to an
+    agent identity receives that agent's Workspace ACLs. Approval delivery is
+    therefore scoped by agent entity, not by Workspace-token owner or human
+    principal. Return an empty owner so `_approval_channel_rows(profile, '')`
+    selects every enabled approval channel assigned to the agent entity.
+    """
+    return ""
+
+
+def _approval_channel_rows_scoped(profile: str, owner_username: str = "") -> list[dict[str, Any]]:
+    try:
+        return _approval_channel_rows(profile, owner_username)
+    except TypeError:
+        # Compatibility for tests or old monkeypatches with the pre-owner signature.
+        return _approval_channel_rows(profile)
+
+
+def _approval_notify_targets(profile: str, owner_username: str = "") -> list[dict[str, Any]]:
     targets: list[dict[str, Any]] = []
-    for channel in _approval_channel_rows(profile):
+    if str(owner_username or "") == APPROVAL_OWNER_UNRESOLVED:
+        return targets
+    channels = _approval_channel_rows_scoped(profile, owner_username)
+    # If a concrete owner was resolved, never fall back to shared profile ACLs;
+    # no notification is safer than notifying another tenant.
+    for channel in channels:
         chat_id = str(channel.get("chat_id") or "")
         agent_ids = [x for x in str(channel.get("agent_ids") or "").split(",") if x]
         targets.append({
             "tenant_id": str(channel.get("tenant_id") or ""),
             "tenant_label": str(channel.get("tenant_label") or ""),
+            "owner_username": str(channel.get("owner_username") or ""),
             "approver_label": str(channel.get("label") or ""),
             "chat_id_hash": hashlib.sha256(chat_id.encode("utf-8")).hexdigest()[:16] if chat_id else "",
             "agent_ids": agent_ids,
@@ -830,7 +1192,14 @@ def _approval_notify_targets(profile: str) -> list[dict[str, Any]]:
 
 def _approval_notify_telegram(event: dict[str, Any]) -> None:
     default_bot_token = _approval_telegram_bot_token()
-    channels = _approval_channel_rows(str(event.get("profile") or ""))
+    profile = str(event.get("profile") or "")
+    owner_username = str(event.get("approval_owner") or "").strip()
+    if owner_username == APPROVAL_OWNER_UNRESOLVED:
+        _append_approval_event({"event": "notification_skipped", "approval_id": event.get("approval_id"), "channel": "telegram", "reason": "unresolved_workspace_owner"})
+        return
+    channels = _approval_channel_rows_scoped(profile, owner_username)
+    # If a concrete owner was resolved, never fall back to shared profile ACLs;
+    # no notification is safer than notifying another tenant.
     if not channels:
         _append_approval_event({"event": "notification_skipped", "approval_id": event.get("approval_id"), "channel": "telegram", "reason": "no_enabled_channels"})
         return
@@ -840,6 +1209,7 @@ def _approval_notify_telegram(event: dict[str, Any]) -> None:
         "🔐 Google Workspace approval required",
         f"Approval: {approval_id}",
         f"Profile: {event.get('profile') or 'unknown'}",
+        f"Owner: {event.get('approval_owner') or 'unknown'}",
         f"Action: {event.get('action') or 'unknown'}",
         f"Resource: {event.get('resource_alias') or 'unknown'}",
         f"Route: {meta.get('token_route') or 'default'}",
@@ -870,9 +1240,9 @@ def _approval_notify_telegram(event: dict[str, Any]) -> None:
         try:
             resp = requests.post(api, json=payload, timeout=10)
             ok = bool(resp.ok and (resp.json().get("ok") if resp.content else True))
-            _append_approval_event({"event": "notification_sent" if ok else "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "status_code": resp.status_code})
+            _append_approval_event({"event": "notification_sent" if ok else "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "owner_username": channel.get("owner_username"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "status_code": resp.status_code})
         except Exception as exc:
-            _append_approval_event({"event": "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "error": type(exc).__name__})
+            _append_approval_event({"event": "notification_failed", "approval_id": approval_id, "channel": "telegram", "tenant_id": channel.get("tenant_id"), "tenant_label": channel.get("tenant_label"), "owner_username": channel.get("owner_username"), "target": channel.get("label") or channel.get("chat_id"), "chat_id_hash": hashlib.sha256(str(channel.get("chat_id") or "").encode("utf-8")).hexdigest()[:16], "error": type(exc).__name__})
 
 
 def _approval_events() -> list[dict[str, Any]]:
@@ -902,6 +1272,24 @@ def _approval_is_expired(item: dict[str, Any]) -> bool:
 
 
 def _approval_state() -> dict[str, dict[str, Any]]:
+    if APPROVAL_DB_PATH.exists() or APPROVAL_STORE_PATH.exists():
+        try:
+            with _approval_db_conn() as conn:
+                _approval_db_init(conn)
+                rows = conn.execute("SELECT * FROM approvals ORDER BY created_at").fetchall()
+                state = {str(row["approval_id"]): _approval_row_to_state(row) for row in rows}
+                history_rows = conn.execute("SELECT approval_id,event_json FROM approval_events ORDER BY id").fetchall()
+                for hrow in history_rows:
+                    approval_id = str(hrow["approval_id"] or "")
+                    if approval_id in state:
+                        try:
+                            event = json.loads(str(hrow["event_json"] or "{}"))
+                        except json.JSONDecodeError:
+                            event = {}
+                        state[approval_id].setdefault("history", []).append({k: v for k, v in event.items() if k not in {"safe_metadata"}})
+                return state
+        except sqlite3.Error:
+            pass
     state: dict[str, dict[str, Any]] = {}
     for event in _approval_events():
         approval_id = str(event.get("approval_id") or "")
@@ -920,11 +1308,15 @@ def _approval_state() -> dict[str, dict[str, Any]]:
             current["decision_channel"] = event.get("decision_channel")
             current["decision_tenant_id"] = event.get("tenant_id")
             current["approved_until"] = event.get("approved_until")
+        elif event.get("event") == "claimed":
+            current["state"] = "executing"
+            current["claimed_by"] = event.get("worker_id")
+            current["claimed_at"] = event.get("ts")
         elif event.get("event") == "consumed":
             current["state"] = "consumed"
             current["consumed_at"] = event.get("ts")
         elif event.get("event") == "execution_failed":
-            current["state"] = "execution_failed"
+            current["state"] = str(event.get("state") or "failed_retryable")
             current["execution_error"] = event.get("error")
     for current in state.values():
         if _approval_is_expired(current):
@@ -946,7 +1338,8 @@ def _create_approval_request(profile: str, action: str, resource_alias: str, rea
     if existing:
         return existing
     approval_id = f"gog-{uuid.uuid4().hex[:12]}"
-    approval_targets = _approval_notify_targets(profile)
+    approval_owner = _approval_owner_for_payload(profile, payload)
+    approval_targets = _approval_notify_targets(profile, approval_owner)
     event = {
         "event": "requested",
         "approval_id": approval_id,
@@ -957,6 +1350,7 @@ def _create_approval_request(profile: str, action: str, resource_alias: str, rea
         "reason": reason,
         "request_hash": request_hash,
         "safe_metadata": _approval_safe_metadata(payload),
+        "approval_owner": approval_owner,
         "approval_targets": approval_targets,
         "approval_target_count": len(approval_targets),
         "expires_at": datetime.fromtimestamp(time.time() + APPROVAL_DEFAULT_TTL_SECONDS, timezone.utc).isoformat(),
@@ -1034,15 +1428,36 @@ def _approval_decide(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
     decision = str(payload.get("decision") or "").strip()
     if decision not in {"approve_once", "deny", "request_edit"}:
         raise ValueError("decision must be approve_once, deny, or request_edit")
-    current = _approval_state().get(approval_id)
-    if not current:
-        raise ValueError("unknown approval_id")
-    if current.get("state") not in {"pending", "request_edit"}:
-        raise ValueError(f"approval is not pending: {current.get('state')}")
     approved_until = None
     if decision == "approve_once":
         ttl = max(60, min(int(payload.get("ttl_seconds") or APPROVAL_DEFAULT_TTL_SECONDS), 3600))
         approved_until = datetime.fromtimestamp(time.time() + ttl, timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    with _approval_db_conn() as conn:
+        _approval_db_init(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        current_row = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+        if not current_row:
+            raise ValueError("unknown approval_id")
+        current = _approval_row_to_state(current_row)
+        if current.get("state") not in {"pending", "request_edit"}:
+            raise ValueError(f"approval is not pending: {current.get('state')}")
+        if _approval_is_expired(current):
+            conn.execute("UPDATE approvals SET state='expired', updated_at=? WHERE approval_id=?", (now, approval_id))
+            conn.commit()
+            raise ValueError("approval is expired")
+        cursor = conn.execute(
+            """
+            UPDATE approvals
+            SET state=?, decision=?, approver=?, decision_reason=?, decision_channel=?, decision_tenant_id=?,
+                approved_until=?, updated_at=?
+            WHERE approval_id=? AND state IN ('pending','request_edit')
+            """,
+            (decision, decision, str(payload.get("approver") or "admin"), str(payload.get("reason") or ""), str(payload.get("decision_channel") or "admin-ui"), str(payload.get("tenant_id") or ""), approved_until or "", now, approval_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("approval decision lost race")
+        conn.commit()
     event = {
         "event": "decided",
         "approval_id": approval_id,
@@ -1059,49 +1474,108 @@ def _approval_decide(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {"status": status, "approval_id": approval_id, "decision": decision, "approved_until": approved_until}
 
 
+def _approval_claim_for_execution(approval_id: str, payload: dict[str, Any], *, approve_if_pending: bool = False) -> dict[str, Any]:
+    if not approval_id:
+        raise PermissionError("approval_id required")
+    now = datetime.now(timezone.utc).isoformat()
+    decided_event: dict[str, Any] | None = None
+    with _approval_db_conn() as conn:
+        _approval_db_init(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+        if not row:
+            raise PermissionError("unknown approval_id")
+        current = _approval_row_to_state(row)
+        state = str(current.get("state") or "")
+        if state in {"pending", "request_edit", "approve_once", "failed_retryable"} and _approval_is_expired(current):
+            conn.execute("UPDATE approvals SET state='expired', updated_at=? WHERE approval_id=?", (now, approval_id))
+            conn.commit()
+            raise PermissionError("approval expired")
+        if state in {"pending", "request_edit"}:
+            if not approve_if_pending:
+                raise PermissionError(f"approval is not approved: {state}")
+            ttl = max(60, min(int(payload.get("ttl_seconds") or APPROVAL_DEFAULT_TTL_SECONDS), 3600))
+            approved_until = datetime.fromtimestamp(time.time() + ttl, timezone.utc).isoformat()
+            decided_event = {
+                "event": "decided",
+                "approval_id": approval_id,
+                "decision": "approve_once",
+                "approver": str(payload.get("approver") or "admin"),
+                "decision_reason": str(payload.get("reason") or ""),
+                "approved_until": approved_until,
+                "tenant_id": str(payload.get("tenant_id") or ""),
+                "decision_channel": str(payload.get("decision_channel") or "admin-ui"),
+            }
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET state='executing', decision='approve_once', approver=?, decision_reason=?, decision_channel=?,
+                    decision_tenant_id=?, approved_until=?, claimed_by=?, claimed_at=?, updated_at=?
+                WHERE approval_id=? AND state IN ('pending','request_edit')
+                """,
+                (decided_event["approver"], decided_event["decision_reason"], decided_event["decision_channel"], decided_event["tenant_id"], approved_until, _APPROVAL_WORKER_ID, now, now, approval_id),
+            )
+        elif state == "approve_once":
+            until = current.get("approved_until")
+            if until:
+                try:
+                    if datetime.fromisoformat(str(until)).timestamp() < time.time():
+                        conn.execute("UPDATE approvals SET state='expired', updated_at=? WHERE approval_id=?", (now, approval_id))
+                        conn.commit()
+                        raise PermissionError("approval expired")
+                except ValueError as exc:
+                    raise PermissionError("approval expiry invalid") from exc
+            cursor = conn.execute(
+                "UPDATE approvals SET state='executing', claimed_by=?, claimed_at=?, updated_at=? WHERE approval_id=? AND state='approve_once'",
+                (_APPROVAL_WORKER_ID, now, now, approval_id),
+            )
+        elif state == "failed_retryable":
+            cursor = conn.execute(
+                "UPDATE approvals SET state='executing', claimed_by=?, claimed_at=?, updated_at=? WHERE approval_id=? AND state='failed_retryable'",
+                (_APPROVAL_WORKER_ID, now, now, approval_id),
+            )
+        elif state == "executing":
+            raise PermissionError("approval is already executing")
+        else:
+            raise PermissionError(f"approval is not executable: {state}")
+        if cursor.rowcount != 1:
+            raise PermissionError("approval execution claim lost race")
+        claimed = conn.execute("SELECT * FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+        conn.commit()
+    if decided_event:
+        _append_approval_event(decided_event)
+    _append_approval_event({"event": "claimed", "approval_id": approval_id, "worker_id": _APPROVAL_WORKER_ID})
+    return _approval_row_to_state(claimed)
+
+
 def _approval_approve_and_execute(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Approve a pending request and execute its sealed retry payload in one UI action."""
+    """Atomically claim a pending/approved request, then execute its sealed retry payload."""
     _require_approval_admin(payload)
     approval_id = str(payload.get("approval_id") or "")
     if not approval_id:
         raise ValueError("approval_id is required")
-    state = _approval_state()
-    current = state.get(approval_id)
-    if not current:
-        raise ValueError("unknown approval_id")
+    current = _approval_claim_for_execution(approval_id, payload, approve_if_pending=True)
     approval_profile = str(current.get("profile") or profile or payload.get("profile") or "").strip()
     if not approval_profile:
         raise ValueError("approval profile unavailable")
-    if current.get("state") in {"pending", "request_edit"}:
-        _approval_decide(approval_profile, {**payload, "decision": "approve_once"})
-        current = _approval_state().get(approval_id) or current
-    elif current.get("state") != "approve_once":
-        raise ValueError(f"approval is not executable: {current.get('state')}")
     retry_payload = _unseal_retry_payload(current.get("retry_payload_sealed"))
     retry_payload.setdefault("request_id", str(payload.get("request_id") or uuid.uuid4()))
     retry_payload.setdefault("profile", approval_profile)
     retry_payload.setdefault("_approval_request_hash", str(current.get("request_hash") or ""))
     retry_payload["_sealed_retry_payload"] = True
+    retry_payload["_approval_execution_claimed"] = True
     result = _governance_execute_approved(approval_profile, retry_payload)
     return {"status": "executed", "approval_id": approval_id, "decision": "approve_once", "profile": approval_profile, "execution": result}
 
 
 def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
     approval_id = str(payload.get("approval_id") or "")
-    if not approval_id:
-        raise PermissionError("approval_id required")
-    current = _approval_state().get(approval_id)
+    already_claimed = bool(payload.get("_approval_execution_claimed"))
+    current = _approval_state().get(approval_id) if already_claimed else _approval_claim_for_execution(approval_id, payload, approve_if_pending=False)
     if not current:
         raise PermissionError("unknown approval_id")
-    if current.get("state") != "approve_once":
-        raise PermissionError(f"approval is not approved: {current.get('state')}")
-    until = current.get("approved_until")
-    if until:
-        try:
-            if datetime.fromisoformat(str(until)).timestamp() < time.time():
-                raise PermissionError("approval expired")
-        except ValueError as exc:
-            raise PermissionError("approval expiry invalid") from exc
+    if already_claimed and current.get("state") != "executing":
+        raise PermissionError(f"approval is not executing: {current.get('state')}")
     expected_hash = str(current.get("request_hash") or "")
     sealed_hash = str(payload.get("_approval_request_hash") or "")
     request_hash = sealed_hash or _approval_request_hash(payload)
@@ -1111,7 +1585,25 @@ def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _mark_approval_consumed(approval_id: str, action: str) -> None:
-    _append_approval_event({"event": "consumed", "approval_id": approval_id, "action": action})
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with _approval_db_conn() as conn:
+            _approval_db_init(conn)
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.execute("UPDATE approvals SET state='consumed', consumed_at=?, updated_at=? WHERE approval_id=? AND state='executing'", (now, now, approval_id))
+            if cursor.rowcount != 1:
+                current = conn.execute("SELECT state FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
+                current_state = str(current["state"] if current else "unknown")
+                raise PermissionError(f"approval consume lost race: {current_state}")
+            conn.commit()
+    except sqlite3.Error as exc:
+        raise PermissionError(f"approval consume failed: {type(exc).__name__}") from exc
+    _append_approval_event({"event": "consumed", "approval_id": approval_id, "action": action, "worker_id": _APPROVAL_WORKER_ID})
+
+
+def _mark_approval_execution_failed(approval_id: str, action: str, error: str, *, retryable: bool = True) -> None:
+    state = "failed_retryable" if retryable else "failed_terminal"
+    _append_approval_event({"event": "execution_failed", "approval_id": approval_id, "action": action, "error": error, "state": state, "worker_id": _APPROVAL_WORKER_ID})
 
 
 def _telegram_decide_from_query(query: dict[str, list[str]]) -> dict[str, Any]:
@@ -1217,8 +1709,8 @@ def _verify_api_token(token: str) -> dict[str, Any] | None:
 
 
 def _agent_token_mode() -> str:
-    mode = os.getenv(AGENT_TOKEN_MODE_ENV, "dual").strip().lower()
-    return mode if mode in {"dual", "strict", "legacy"} else "dual"
+    mode = os.getenv(AGENT_TOKEN_MODE_ENV, "strict").strip().lower()
+    return mode if mode in {"dual", "strict", "legacy"} else "strict"
 
 
 def _load_agent_token_map() -> dict[str, dict[str, Any]]:
@@ -1296,7 +1788,7 @@ def _resolve_agent_identity(headers: Any, claims: dict[str, Any], payload: dict[
             raise ValueError("agent token/body profile mismatch")
         _mark_agent_token_used(digest)
         return agent_id, {"agent_id": agent_id, "agent_token_id": record.get("id", ""), "agent_token_source": record.get("source", ""), "agent_token_hash": digest[:12], "identity_mode": "agent_token", "bridge_allowed_profiles": allowed_profiles}
-    if mode == "strict":
+    if mode == "strict" or "*" in allowed_profiles:
         raise ValueError(f"missing {AGENT_TOKEN_HEADER}")
     legacy_profile = str(payload.get("profile") or claims.get("_profile") or "").strip()
     if not legacy_profile or legacy_profile == "*":
@@ -1330,20 +1822,19 @@ def _workspace_token_from_db(token_id: str) -> dict[str, Any] | None:
         return None
     if not row:
         return None
-    return {"id": row["id"], "account_alias": row["account_alias"], "bundle": row["bundle"], "token_json": json.loads(row["token_json"] or "{}"), "metadata_json": json.loads(row["metadata_json"] or "{}"), "scopes": json.loads(row["scopes_json"] or "[]")}
+    return {"id": row["id"], "account_alias": row["account_alias"], "bundle": row["bundle"], "email": row["email"], "owner_username": row["owner_username"] if "owner_username" in row.keys() else "", "token_json": json.loads(row["token_json"] or "{}"), "metadata_json": json.loads(row["metadata_json"] or "{}"), "scopes": json.loads(row["scopes_json"] or "[]")}
 
 
 def _route_lookup_key(value: str | None) -> str:
     return "".join(ch for ch in str(value or "").strip().lower() if ch.isalnum())
 
 
-def _workspace_token_id_for_name(value: str | None) -> str | None:
-    """Resolve a human token/account name to the active SQLite workspace token id.
+def _workspace_token_id_for_name(value: str | None, allowed_token_ids: set[str] | None = None) -> str | None:
+    """Resolve a human token/account name to an active SQLite token id.
 
-    The Control UI exposes user-facing token names such as "Shared Workspace". Agents
-    should be able to pass that exact name as token_route; hard-coded account
-    aliases are only a fallback because the operator may revoke/recreate tokens with
-    new names.
+    Friendly labels are intentionally route-local. In a multi-tenant gateway two
+    tenants may both call their token "Shared Workspace"; callers must pass the
+    authenticated agent's allowed token set so labels cannot resolve globally.
     """
     target = _route_lookup_key(value)
     if not target or not TOKEN_DB_PATH.exists():
@@ -1355,6 +1846,9 @@ def _workspace_token_id_for_name(value: str | None) -> str | None:
         return None
     label_keys = ("token_label", "label", "display_name", "display_label", "token_name", "name", "account_label")
     for row in rows:
+        token_id = str(row["id"])
+        if allowed_token_ids is not None and token_id not in allowed_token_ids:
+            continue
         metadata = json.loads(row["metadata_json"] or "{}")
         candidates = [
             row["id"],
@@ -1364,8 +1858,37 @@ def _workspace_token_id_for_name(value: str | None) -> str | None:
         ]
         candidates.extend(str(metadata.get(key) or "") for key in label_keys)
         if target in {_route_lookup_key(candidate) for candidate in candidates if str(candidate or "").strip()}:
-            return str(row["id"])
+            return token_id
     return None
+
+
+def _policy_allowed_token_ids(profile: str) -> set[str]:
+    """Return workspace token IDs assigned to an agent/profile by UI policy."""
+    from governance_policy import POLICY_PATH, load_policy
+    try:
+        policy = load_policy()
+    except Exception as exc:
+        raise RuntimeError(f"failed to load UI runtime policy {POLICY_PATH}: {type(exc).__name__}: {exc}") from exc
+    allowed: set[str] = set()
+    for account_alias, account_spec in (policy.get("accounts") or {}).items():
+        routes = (account_spec or {}).get("current_profile_routes") or {}
+        route = str(routes.get(profile) or "").strip()
+        if route:
+            allowed.add(f"{account_alias}/workspace-full.json")
+    profile_meta = (policy.get("profiles") or {}).get(profile) or {}
+    account_alias = str(profile_meta.get("account_alias") or "").strip()
+    if account_alias:
+        allowed.add(f"{account_alias}/workspace-full.json")
+    default_route = str(profile_meta.get("default_route_alias") or "").strip()
+    if "/" in default_route:
+        route_profile, account = default_route.split("/", 1)
+        if route_profile == profile and account:
+            allowed.add(f"{account}/workspace-full.json")
+    for account in profile_meta.get("connected_account_aliases") or []:
+        account_s = str(account or "").strip()
+        if account_s:
+            allowed.add(f"{account_s}/workspace-full.json")
+    return allowed
 
 
 def _workspace_token_available(token_id: str) -> bool:
@@ -1391,17 +1914,23 @@ def _store_workspace_token_db(token_id: str, token_payload: dict[str, Any], meta
 
 def _dynamic_token_id(profile: str, route: str | None) -> str | None:
     route_key = route or "default"
+    allowed_token_ids = _policy_allowed_token_ids(profile)
     if "/" in route_key:
         route_profile, route_alias = route_key.split("/", 1)
         if route_profile == profile and route_alias:
-            named = _workspace_token_id_for_name(route_alias)
+            named = _workspace_token_id_for_name(route_alias, allowed_token_ids)
             if named:
                 return named
-            return f"{route_alias}/workspace-full.json"
+            candidate = f"{route_alias}/workspace-full.json"
+            return candidate if candidate in allowed_token_ids else None
+        return None
     if route_key != "default":
-        named = _workspace_token_id_for_name(route_key)
+        named = _workspace_token_id_for_name(route_key, allowed_token_ids)
         if named:
             return named
+        candidate = f"{route_key}/workspace-full.json"
+        if candidate in allowed_token_ids:
+            return candidate
     from governance_policy import POLICY_PATH, load_policy
     try:
         policy = load_policy()
@@ -1411,7 +1940,8 @@ def _dynamic_token_id(profile: str, route: str | None) -> str | None:
     for account_alias, account_spec in accounts.items():
         routes = account_spec.get("current_profile_routes") or {}
         if routes.get(profile) == f"{profile}/{route_key}":
-            return f"{account_alias}/workspace-full.json"
+            candidate = f"{account_alias}/workspace-full.json"
+            return candidate if not allowed_token_ids or candidate in allowed_token_ids else None
     profile_meta = (policy.get("profiles") or {}).get(profile) or {}
     # UI-managed policies express the default workspace on the profile as
     # `account_alias` / `default_route_alias`. Do not fall back to any static
@@ -1419,27 +1949,186 @@ def _dynamic_token_id(profile: str, route: str | None) -> str | None:
     if route_key == "default":
         account_alias = str(profile_meta.get("account_alias") or "").strip()
         if account_alias:
-            return f"{account_alias}/workspace-full.json"
+            candidate = f"{account_alias}/workspace-full.json"
+            return candidate if not allowed_token_ids or candidate in allowed_token_ids else None
         default_route = str(profile_meta.get("default_route_alias") or "").strip()
         if "/" in default_route:
             route_profile, route_alias = default_route.split("/", 1)
             if route_profile == profile and route_alias:
-                return f"{route_alias}/workspace-full.json"
+                candidate = f"{route_alias}/workspace-full.json"
+                return candidate if not allowed_token_ids or candidate in allowed_token_ids else None
     return None
 
 
 def _canonicalize_payload_token_route(profile: str, payload: dict[str, Any]) -> None:
-    """Turn human token names into canonical profile/account routes in-place."""
+    """Turn human token names into canonical profile/account routes in-place.
+
+    Explicit token routes are security boundaries. If a caller provides a route
+    that is not mapped to the resolved profile in UI policy, reject before ACL
+    evaluation instead of silently falling back to the profile default.
+    """
     route = str(payload.get("token_route") or "").strip()
     if not route or route == "default":
         return
     token_id = _dynamic_token_id(profile, route)
     if not token_id or "/" not in token_id:
-        return
+        raise ValueError(f"token route not configured in UI policy for {profile}: {route}")
     account_alias = token_id.split("/", 1)[0]
     if account_alias:
         payload.setdefault("token_route_requested", route)
         payload["token_route"] = f"{profile}/{account_alias}"
+
+
+def _workspace_action_requires_route(action: str) -> bool:
+    return action.startswith(("gmail.", "calendar.", "drive.", "docs.", "sheets.", "slides.", "contacts.", "forms.", "tasks.", "chat.", "apps_script."))
+
+
+def _route_principal_norm(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _apply_on_behalf_headers(payload: dict[str, Any], headers: Any) -> None:
+    for header in (
+        "X-Google-Governance-On-Behalf-Of",
+        "X-On-Behalf-Of",
+        "X-Hermes-User",
+        "X-Telegram-User-Id",
+        "X-Telegram-Username",
+    ):
+        value = str(headers.get(header) or headers.get(header.lower()) or "").strip()
+        if value:
+            payload.setdefault("on_behalf_of", value)
+            identity = payload.setdefault("_governance_identity", {})
+            if isinstance(identity, dict):
+                identity.setdefault("on_behalf_of", value)
+            return
+
+
+def _on_behalf_candidates(payload: dict[str, Any]) -> list[str]:
+    raw: list[str] = []
+    for key in ("on_behalf_of", "behalf_of", "requestor", "requester", "actor_username", "actor", "user", "telegram_user_id", "telegram_username"):
+        value = payload.get(key)
+        if value is not None and str(value).strip():
+            raw.append(str(value).strip())
+    identity = payload.get("_governance_identity")
+    if isinstance(identity, dict):
+        for key in ("on_behalf_of", "actor", "username", "telegram_user_id", "telegram_username"):
+            value = identity.get(key)
+            if value is not None and str(value).strip():
+                raw.append(str(value).strip())
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        norm = _route_principal_norm(item)
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
+
+
+def _owner_usernames_for_on_behalf(conn: sqlite3.Connection, principals: list[str]) -> set[str]:
+    owners: set[str] = set()
+    try:
+        tenant_cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(approval_tenants)").fetchall()}
+        if not {"owner_username", "telegram_user_id"}.issubset(tenant_cols):
+            return owners
+        username_expr = "COALESCE(telegram_username,'')" if "telegram_username" in tenant_cols else "''"
+        rows = conn.execute(f"SELECT owner_username, telegram_user_id, {username_expr} AS telegram_username FROM approval_tenants WHERE enabled=1").fetchall()
+    except sqlite3.Error:
+        return owners
+    for row in rows:
+        haystack = {
+            _route_principal_norm(str(row["owner_username"] or "")),
+            _route_principal_norm(str(row["telegram_user_id"] or "")),
+            _route_principal_norm(str(row["telegram_username"] or "")),
+        }
+        if any(principal in haystack for principal in principals):
+            owner = str(row["owner_username"] or "").strip()
+            if owner:
+                owners.add(owner)
+    return owners
+
+
+def _token_id_for_on_behalf(profile: str, allowed_token_ids: set[str], payload: dict[str, Any]) -> str | None:
+    principals = _on_behalf_candidates(payload)
+    if not principals or not TOKEN_DB_PATH.exists():
+        return None
+    try:
+        conn = _open_sqlite(TOKEN_DB_PATH, read_only=True)
+        try:
+            owner_usernames = _owner_usernames_for_on_behalf(conn, principals)
+            rows = conn.execute("SELECT id, account_alias, owner_username, email, metadata_json FROM workspace_tokens WHERE revoked_at='' AND status='connected'").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    matches: list[str] = []
+    for row in rows:
+        token_id = str(row["id"] or "")
+        if allowed_token_ids and token_id not in allowed_token_ids:
+            continue
+        alias = str(row["account_alias"] or "").strip()
+        owner_username = str(row["owner_username"] or "").strip()
+        route = f"{profile}/{alias}"
+        haystack = {
+            _route_principal_norm(owner_username),
+            _route_principal_norm(str(row["email"] or "")),
+            _route_principal_norm(alias),
+            _route_principal_norm(route),
+        }
+        try:
+            meta = json.loads(str(row["metadata_json"] or "{}"))
+        except Exception:
+            meta = {}
+        if isinstance(meta, dict):
+            for key in ("owner_username", "owner", "email", "telegram_user_id", "telegram_username", "username"):
+                if meta.get(key):
+                    haystack.add(_route_principal_norm(str(meta[key])))
+        if owner_username and owner_username in owner_usernames:
+            matches.append(token_id)
+        elif any(principal in haystack for principal in principals):
+            matches.append(token_id)
+    matches = sorted(set(matches))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        raise ValueError(f"on_behalf_of matched multiple Workspace routes for {profile}; token_route is required")
+    return None
+
+
+def _bind_default_workspace_route(profile: str, action: str, payload: dict[str, Any]) -> None:
+    """Bind or reject ambiguous workspace routes before ACL evaluation.
+
+    Route-scoped ACLs are only meaningful if ACL evaluation receives the same
+    concrete route the token layer will use. For workspace actions, avoid
+    falling back to profile defaults when a profile has no single unambiguous
+    default route.
+    """
+    if not _workspace_action_requires_route(action):
+        return
+    route = str(payload.get("token_route") or "").strip()
+    if route and route != "default":
+        _canonicalize_payload_token_route(profile, payload)
+        return
+    allowed = sorted(_policy_allowed_token_ids(profile))
+    if len(allowed) > 1:
+        # Agent-entity ACLs are shared by every user mapped to this agent. When
+        # more than one Workspace token is mapped to the same agent, callers must
+        # supply an explicit concrete route (or the UI must configure exactly one
+        # default) so ACL evaluation and token use stay aligned.
+        raise ValueError(f"token_route required for {profile} {action}; multiple Workspace routes are configured")
+    if len(allowed) == 1 and "/" in allowed[0]:
+        account_alias = allowed[0].split("/", 1)[0]
+        payload.setdefault("token_route_requested", route or "default")
+        payload["token_route"] = f"{profile}/{account_alias}"
+        return
+    default_token = _dynamic_token_id(profile, "default")
+    if default_token and "/" in default_token:
+        account_alias = default_token.split("/", 1)[0]
+        payload.setdefault("token_route_requested", route or "default")
+        payload["token_route"] = f"{profile}/{account_alias}"
+        return
+    raise ValueError(f"token route not configured in UI policy for {profile}: {route or 'default'}")
 
 
 def _token_id_for_route(profile: str, route: str | None) -> str:
@@ -2374,8 +3063,9 @@ def _governance_execute_approved(profile: str, payload: dict[str, Any]) -> dict[
         _audit_observed(profile, action, status, payload, resource_alias, approval_id=payload["approval_id"], approved_by=approval.get("approver"), latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
         return {"status": "executed" if status == "ok" else "error", "approval_id": payload["approval_id"], "action": action, "resource_alias": resource_alias, "result": result}
     except Exception as exc:
-        _append_approval_event({"event": "execution_failed", "approval_id": str(payload.get("approval_id") or ""), "action": action, "error": type(exc).__name__})
-        _audit_observed(profile, action, "error", payload, resource_alias, approval_id=payload.get("approval_id"), error=type(exc).__name__, latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
+        error_message = f"{type(exc).__name__}: {str(exc)}"[:500]
+        _mark_approval_execution_failed(str(payload.get("approval_id") or ""), action, error_message)
+        _audit_observed(profile, action, "error", payload, resource_alias, approval_id=payload.get("approval_id"), error=type(exc).__name__, error_message=str(exc)[:500], latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
         raise
 
 
@@ -2613,7 +3303,33 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         if path == "/healthz":
-            _json_response(self, 200, {"status": "ok", "service": "google-workspace-governance", "profiles": sorted(PROFILE_CONFIG), "token_root": str(TOKEN_ROOT), "token_db": str(TOKEN_DB_PATH)})
+            policy_profiles: list[str] = []
+            policy_accounts: list[str] = []
+            policy_path = ""
+            policy_loaded = False
+            try:
+                from governance_policy import POLICY_PATH as _RUNTIME_POLICY_PATH, load_policy
+                policy_path = str(_RUNTIME_POLICY_PATH)
+                policy = load_policy()
+                policy_profiles = sorted(str(x) for x in ((policy.get("profile_policy") or {}).keys()))
+                policy_accounts = sorted(str(x) for x in ((policy.get("accounts") or {}).keys()))
+                policy_loaded = True
+            except Exception:
+                policy_profiles = []
+                policy_accounts = []
+            _json_response(self, 200, {
+                "status": "ok",
+                "service": "google-workspace-governance",
+                "profiles": policy_profiles or sorted(PROFILE_CONFIG),
+                "policy_profiles": policy_profiles,
+                "policy_accounts": policy_accounts,
+                "legacy_static_profiles": sorted(PROFILE_CONFIG),
+                "policy_loaded": policy_loaded,
+                "policy_path": policy_path,
+                "token_root": str(TOKEN_ROOT),
+                "token_db": str(TOKEN_DB_PATH),
+                "database_backend": _database_backend_status(),
+            })
         elif path == "/metrics":
             _text_response(self, 200, _metrics_text(), "text/plain; version=0.0.4; charset=utf-8")
         elif path == "/v1/governance/approvals/telegram-decide":
@@ -2632,19 +3348,19 @@ class Handler(BaseHTTPRequestHandler):
         payload: dict[str, Any] = {}
         try:
             parsed = urlparse(self.path)
+            _enforce_json_body_limit(self)
             if parsed.path == "/v1/governance/approvals/telegram-webhook" or parsed.path.startswith("/v1/governance/approvals/telegram-webhook/"):
                 tenant_id = ""
                 prefix = "/v1/governance/approvals/telegram-webhook/"
                 if parsed.path.startswith(prefix):
                     tenant_id = unquote(parsed.path[len(prefix):].strip("/"))
-                length = int(self.headers.get("Content-Length", "0"))
-                update = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+                update = _read_json_body(self)
                 result = _telegram_handle_update(update, parse_qs(parsed.query), dict(self.headers), tenant_id)
                 _json_response(self, 200, result)
                 return
             claims = _verify_jwt(self.headers.get("Authorization", ""))
-            length = int(self.headers.get("Content-Length", "0"))
-            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            payload = _read_json_body(self)
+            _apply_on_behalf_headers(payload, self.headers)
             fn = ROUTES.get(self.path)
             if not fn:
                 _json_response(self, 404, {"error": "not_found"})
@@ -2662,6 +3378,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload.setdefault("_tool", self.path.rsplit("/", 1)[-1])
             if self.path not in {"/v1/governance/approvals/list", "/v1/governance/approvals/decide", "/v1/governance/approve-and-execute", "/v1/governance/execute-approved"}:
                 payload.setdefault("_gateway_path", self.path)
+                policy_action, policy_resource = _route_policy_context(self.path, profile, payload)
+                _bind_default_workspace_route(profile, policy_action, payload)
                 policy_action, policy_resource = _route_policy_context(self.path, profile, payload)
                 enforcement = _enforce_acl(profile, policy_action, policy_resource, payload)
                 if enforcement is not None:
@@ -2692,7 +3410,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             except Exception:
                 pass
-            _json_response(self, 403 if isinstance(exc, PermissionError) else (500 if not isinstance(exc, ValueError) else 401), {"error": type(exc).__name__, "message": str(exc)})
+            _json_response(self, 403 if isinstance(exc, PermissionError) else (413 if isinstance(exc, RequestBodyTooLarge) else (500 if not isinstance(exc, ValueError) else 401)), {"error": type(exc).__name__, "message": str(exc)})
 
 
 def main() -> None:

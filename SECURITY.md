@@ -92,6 +92,7 @@ Recommended policy posture:
 
 - Run the gateway under a dedicated service user, default `google-workspace-gateway`.
 - Keep the gateway API bound to `127.0.0.1` or an internal-only network.
+- Treat the browser control plane as an admin-only surface. End users and workspace owners should request access through an administrative workflow; they should not need UI accounts or direct control-plane visibility.
 - For cross-host agent deployments, do not rely on raw HTTP over a shared LAN. Use HTTPS, mTLS, SSH tunneling, WireGuard/Tailscale, or an equivalent encrypted private network so bearer tokens are not exposed in transit.
 - Expose the control UI only to trusted operators.
 - Put the control UI behind VPN, reverse proxy auth, or SSO if it is reachable beyond localhost.

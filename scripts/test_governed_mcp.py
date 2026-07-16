@@ -179,6 +179,28 @@ def _install_test_workspace_token_db(gateway) -> None:
         )
         conn.commit()
     setattr(gateway, "TOKEN_DB_PATH", db_path)
+    policy_path = Path(tempfile.gettempdir()) / "google-workspace-governance-governed-test-policy.json"
+    policy_path.write_text(json.dumps({
+        "schema_version": 3,
+        "mode": "enforce",
+        "unknown_profile_default": "deny",
+        "unknown_resource_default": "deny",
+        "accounts": {
+            "workspace-shared": {"current_profile_routes": {"agent-b": "agent-b/workspace-shared"}},
+            "workspace-other": {"current_profile_routes": {"agent-a": "agent-a/workspace-other"}},
+        },
+        "profiles": {
+            "agent-b": {"account_alias": "workspace-shared", "default_route_alias": "agent-b/workspace-shared", "connected_account_aliases": ["workspace-shared"]},
+            "agent-a": {"account_alias": "workspace-other", "default_route_alias": "agent-a/workspace-other", "connected_account_aliases": ["workspace-other"]},
+        },
+        "profile_policy": {"agent-a": {"defaults": {}, "resource_overrides": {}}, "agent-b": {"defaults": {}, "resource_overrides": {}}},
+        "operation_classes": {},
+        "global_denies": [],
+    }), encoding="utf-8")
+    import governance_policy
+    governance_policy.POLICY_PATH = policy_path
+    governance_policy._POLICY_CACHE = None
+    governance_policy._POLICY_MTIME = None
 
 
 def _tool_decorated_function_names(tree: ast.Module) -> set[str]:
@@ -207,6 +229,10 @@ def assert_gateway_action_mapping() -> None:
     _install_test_workspace_token_db(gateway)
     if gateway._dynamic_token_id("agent-b", "Shared Workspace") != "workspace-shared/workspace-full.json":
         raise SystemExit("token display name did not resolve to SQLite workspace token")
+    if gateway._dynamic_token_id("agent-a", "Shared Workspace") is not None:
+        raise SystemExit("agent-a resolved another tenant's Shared Workspace display name")
+    if gateway._dynamic_token_id("agent-a", "agent-b/Shared Workspace") is not None:
+        raise SystemExit("profile-qualified foreign route was accepted")
     if gateway._dynamic_token_id("agent-b", "agent-b/Shared Workspace") != "workspace-shared/workspace-full.json":
         raise SystemExit("profile-scoped token display name did not resolve to SQLite workspace token")
     route_payload = {"token_route": "Shared Workspace"}
@@ -215,6 +241,9 @@ def assert_gateway_action_mapping() -> None:
         raise SystemExit(f"token route was not canonicalized from display name: {route_payload}")
     if gateway.resource_for("agent-b", "gmail.search_gmail_messages", route_payload) != "gmail_workspace_shared":
         raise SystemExit(f"canonical display-name route did not map to resource alias: {route_payload}")
+    unknown_decision = gateway.classify("agent-b", "gmail.search_gmail_messages", "gmail_unmapped_workspace")
+    if unknown_decision.get("decision") != "deny" or unknown_decision.get("decision_source") != "unknown_resource_default":
+        raise SystemExit(f"unknown_resource_default did not deny unmapped resource before defaults/classes: {unknown_decision}")
     for case, expected in ACTION_CASES.items():
         got = gateway._google_request_action(*case)
         if got != expected:

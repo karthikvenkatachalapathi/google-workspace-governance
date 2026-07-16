@@ -2,7 +2,7 @@
 
 A self-hosted governance gateway for Google Workspace access by AI agents, MCP clients, scripts, and automations.
 
-Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an authenticated browser control plane for setup and day-to-day administration.
+Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an admin-only browser control plane for setup and day-to-day administration.
 
 ## Feature set
 
@@ -10,7 +10,7 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 
 - Exposes governed Google Workspace tools for Gmail, Calendar, Drive, Docs, Sheets, Slides, and Contacts/People.
 - Stores Google OAuth credentials centrally in gateway-owned state instead of in each agent profile.
-- Lets administrators connect Google accounts from a browser UI using a Google OAuth Desktop App `client_secret.json`.
+- Lets administrators connect Google accounts from a browser UI using a Google OAuth Desktop App `client_secret.json`; end users submit workspace onboarding details to an admin instead of signing into the gateway UI.
 - Maps agent profiles to one or more Google account routes such as `agent-a/workspace-primary` or `agent-b/workspace-shared`.
 - Enforces `allow`, `ask`, or `deny` decisions for each profile/action/resource surface.
 - Supports approval-required flows for high-risk operations such as sending mail, deleting calendar events, Drive sharing, and Drive deletes.
@@ -25,7 +25,7 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 - Lets each tenant map its own agent identities to canonical routes like `agent-a/workspace-primary` while sharing the same governed gateway runtime.
 - Supports per-tenant approval routing, including dedicated approval bots or approver channels, so one tenant's approval queue does not become another tenant's control surface.
 - Applies policy per resolved agent identity, route, action, and resource; request-body labels are audit metadata, not the tenancy boundary.
-- Gives administrators a browser-managed control plane for tenant onboarding, workspace connection, profile/route mapping, ACL edits, token revocation, and runtime policy apply.
+- Gives administrators a browser-managed control plane for tenant onboarding, workspace connection, profile/route mapping, ACL edits, token revocation, and runtime policy apply. The control plane is not an end-user portal.
 
 ## How this differs from typical Google Workspace MCP servers
 
@@ -41,7 +41,7 @@ This project is different:
 | Policy model | Minimal or app-specific | `profile + resource + action => allow/ask/deny` |
 | High-risk operations | Often directly callable if OAuth scope allows it | Approval path for externalizing/destructive operations |
 | Auditability | Depends on host logs | Gateway JSONL audit, control audit, request IDs, optional metrics |
-| Operator workflow | Config files and tokens on disk | Browser UI for OAuth connection, route mapping, ACL edits, runtime apply |
+| Operator workflow | Config files and tokens on disk | Admin-only browser UI for OAuth connection, agent identity assignment, route mapping, ACL edits, runtime apply |
 | Google OAuth exposure | Agents often need refresh tokens | Agents receive only gateway URL, route, client token, and agent token |
 
 The goal is not just “Google tools over MCP.” The goal is a governed Google access layer that can safely sit between multiple agents and multiple Google accounts.
@@ -108,6 +108,17 @@ Agents do not call the gateway anonymously. The MCP wrapper sends two separate c
 
 Clients never read gateway-local OAuth files, signing secrets, or server-side config. Google OAuth refresh tokens remain in gateway custody.
 
+### Admin-only control plane
+
+The browser control plane is intentionally admin-only. Human workspace owners and application users should not need to know the gateway exists. The expected operating model is:
+
+1. A user or team requests Google Workspace access for an agent/workload and provides the required onboarding details to an administrator.
+2. An admin connects or reauthorizes the Workspace account in the control UI.
+3. An admin creates/assigns the agent identity, maps the agent-to-workspace route, and applies ACL policy.
+4. The agent receives only gateway connection settings and tokens; approvals and audits continue through the governance layer.
+
+This keeps OAuth custody, ACL decisions, approval routing, and runtime policy generation in one audited admin surface. As deployments grow, the same model can evolve from per-agent ACL rows toward group/policy templates without exposing the gateway UI to every workspace owner.
+
 ## Quick start: native Linux/systemd
 
 The recommended deployment is native Linux/systemd.
@@ -147,11 +158,12 @@ The default install creates:
 3. In Google Cloud Console, create a Google OAuth **Desktop App** client and download `client_secret.json`.
 4. In the control UI, go to **Admin settings → Google Workspace → Configure new workspace**.
 5. Upload/paste the Desktop App `client_secret.json` and complete Google consent.
-6. Go to **Configure workspace routes** and map profiles to connected account routes.
-7. Go to **ACL rules** and set `allow`, `ask`, or `deny` for each profile/action/service row.
-8. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, optional default route, a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, and an agent/workload-specific `GOOGLE_GOVERNANCE_AGENT_TOKEN`. Client connections are API-only; clients do not need filesystem permission to server-side state, OAuth custody, config, or secret files.
+6. Go to **Configure Agent Identity** and create or select the agent/workload identity.
+7. Go to **Configure Agent-Workspace Route** and map profiles to connected account routes.
+8. Go to **ACL rules** and set `allow`, `ask`, or `deny` for each profile/action/service row.
+9. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, optional default route, a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, and an agent/workload-specific `GOOGLE_GOVERNANCE_AGENT_TOKEN`. Client connections are API-only; clients do not need filesystem permission to server-side state, OAuth custody, config, or secret files.
 
-The YAML files in this repository are seed/source artifacts and recovery material. Routine operators should use the web UI so validation, runtime policy generation, audit logging, and rollback behavior stay consistent.
+The YAML files in this repository are seed/source artifacts and recovery material. Routine operators should use the web UI so validation, runtime policy generation, audit logging, and rollback behavior stay consistent. Optional Postgres migration/cutover steps are documented in [SETUP.md](SETUP.md#13-optional-postgres-migration-and-operator-cutover); the default install includes Postgres driver/backend wiring while keeping SQLite active until explicitly configured.
 
 ## Repository layout
 
@@ -165,9 +177,8 @@ The YAML files in this repository are seed/source artifacts and recovery materia
 | `scripts/install_systemd.sh` | Native Linux/systemd installer |
 | `scripts/verify_systemd.sh` | Native Linux/systemd verifier |
 | `scripts/test_*.py` | Offline regression tests |
-| `google-governance-policy.yaml` | Example/seed ACL policy |
-| `google-resource-registry.yaml` | Example/seed account/profile/resource registry |
-| `generated/profile_policy.json` | Example generated runtime policy |
+| `.google-governance/state/policy/profile_policy.json` | Runtime ACL policy generated by the admin UI |
+| `.google-governance/state/policy/generated_profile_policy.json` | Last generated policy snapshot for validation/recovery |
 | `generated/loki/` | Optional Promtail/Loki scrape config example |
 | `grafana/google-workspace-governance-ops-dashboard.json` | Importable Grafana operations dashboard for governance metrics/logs |
 | `generated/ui/control-plane/` | Logo and reverse-proxy example |

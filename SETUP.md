@@ -46,14 +46,7 @@ git clone <repo-url> google-workspace-governance-gateway
 cd google-workspace-governance-gateway
 ```
 
-Review the example policy before installing:
-
-```bash
-less google-governance-policy.yaml
-less google-resource-registry.yaml
-```
-
-The included YAML is starter material. You will normally configure accounts, routes, and ACLs through the web UI after installation.
+The repository no longer ships editable YAML policy seeds. The installer creates SQLite-backed state and runtime JSON policy under `.google-governance/`; routine configuration happens through the admin-only web UI after installation.
 
 ## 2. Install natively with systemd
 
@@ -132,7 +125,9 @@ In Google Cloud Console:
 
 Do not commit this file. The control UI lets you upload or paste it for the OAuth flow.
 
-## 5. Connect Google Workspace accounts in the UI
+## 5. Connect Google Workspace accounts in the admin UI
+
+The control UI is admin-only. Users or teams should submit the Workspace account details and requested agent/workload access to an administrator; they should not need a gateway UI account.
 
 In the control UI:
 
@@ -149,9 +144,9 @@ The OAuth refresh token is stored in gateway-owned state, not in the agent profi
 
 For multi-tenant deployments, repeat this connection flow per tenant-owned workspace/account and use clear account aliases. A tenant can share the same gateway runtime with other tenants while keeping OAuth custody, account aliases, route mappings, approvals, policy decisions, and audit records separated by resolved agent identity and route.
 
-## 6. Map profiles to account routes
+## 6. Create agent identities and map account routes
 
-Open **Admin settings → Google Workspace → Configure workspace routes**.
+Open **Admin settings → Google Workspace → Configure Agent Identity** to create or select the agent/workload identity, then open **Configure Agent-Workspace Route**.
 
 Map real agent profile slugs to connected Google accounts. Route format:
 
@@ -171,7 +166,7 @@ support-bot/workspace-primary
 
 A profile can have multiple routes. This is useful when one agent needs access to both a personal account and a business account, but with separate policy boundaries.
 
-Connecting an account does not mean broad access. Policy still decides what each profile/account route may do.
+Connecting an account does not mean broad access. Admin-assigned ACL policy still decides what each profile/account route may do. For larger deployments, use repeated ACL patterns as proto-templates and promote them into group/policy-template automation when the same access bundles recur across many agents.
 
 ## 7. Configure ACL policy in the UI
 
@@ -315,13 +310,139 @@ sudo systemctl restart google-workspace-governance-control.service
 curl -fsS http://127.0.0.1:8095/healthz
 ```
 
-## 13. Optional Docker evaluation
+## 13. Optional Postgres migration and operator cutover
+
+SQLite is the default and remains appropriate for a single-node or same-host gateway. Migrate to Postgres before running active-active gateway instances, multi-host high availability, or any deployment where multiple gateway/control workers need shared transactional state.
+
+The control UI includes a migration helper under:
+
+```text
+Admin settings → Runtime → Backups → Postgres migration
+```
+
+This helper is deliberately conservative. It does **not** silently repoint the live gateway. It:
+
+1. reads the current SQLite control/token state,
+2. creates a runtime backup before migration work,
+3. generates a SQLite → Postgres SQL migration script,
+4. defaults to dry-run mode, and
+5. can execute the SQL against a provided Postgres DSN when the operator explicitly confirms.
+
+### Operator prerequisites
+
+Before executing a live cutover:
+
+- Provision a Postgres database and dedicated least-privilege role.
+- Require TLS or a private network path between the gateway host and Postgres.
+- Confirm the current gateway release has default Postgres backend support available. The native installer installs the `psycopg` driver and wires `GOOGLE_GOVERNANCE_DB_BACKEND=sqlite` plus an optional blank `GOOGLE_GOVERNANCE_DATABASE_URL` into the gateway, MCP, and control services, so SQLite stays active until an operator deliberately switches the backend.
+- Schedule a short maintenance window. The migration copy is safe, but cutover should be treated as a controlled state transition.
+- Keep the UI/API as the source of truth. Do not hand-edit generated YAML as part of the migration; direct YAML edits are recovery material and may be overwritten by the UI.
+
+### Recommended migration flow
+
+1. **Plan in the UI**
+
+   Open **Runtime → Backups → Postgres migration**, enter the Postgres DSN, and click **Plan migration**. Review the table list and row counts. The UI redacts DSN passwords in displayed results.
+
+2. **Run a dry run**
+
+   Leave **Dry run** enabled and click **Run migration pipeline**. This creates:
+
+   - a normal runtime backup archive, and
+   - a generated SQL migration script.
+
+   Review both paths in the UI result. Keep the backup until the Postgres-backed gateway has been stable long enough to satisfy your rollback policy.
+
+3. **Drain gateway traffic**
+
+   Stop or drain agent traffic before the final copy so SQLite does not receive new approvals, token changes, ACL edits, or audit-relevant writes during cutover.
+
+   For a single native install:
+
+   ```bash
+   sudo systemctl stop google-workspace-governance.service
+   ```
+
+   Leave the control UI available only long enough to start the final migration, or run the generated SQL manually from the reviewed script. Do not make unrelated UI changes during the maintenance window.
+
+4. **Execute the migration**
+
+   In the UI, disable **Dry run**, type:
+
+   ```text
+   MIGRATE TO POSTGRES
+   ```
+
+   Then click **Run migration pipeline**.
+
+   If the runtime environment does not have `psycopg` or `psycopg2`, the UI still leaves you with the backup and SQL script. In that case, apply the reviewed script with `psql` from a host that can reach Postgres:
+
+   ```bash
+   psql "$POSTGRES_DSN" -v ON_ERROR_STOP=1 -f /path/to/sqlite-to-postgres.sql
+   ```
+
+5. **Configure the services for Postgres**
+
+   After the data is loaded, configure the gateway and control UI to use the Postgres backend. Prefer a systemd drop-in or installer-supported environment override rather than editing generated unit files by hand.
+
+   Example drop-in:
+
+   ```bash
+   sudo systemctl edit google-workspace-governance.service
+   sudo systemctl edit google-workspace-governance-control.service
+   ```
+
+   ```ini
+   [Service]
+   Environment=GOOGLE_GOVERNANCE_DB_BACKEND=postgres
+   Environment=GOOGLE_GOVERNANCE_DATABASE_URL=postgresql://gateway_user:REDACTED@postgres-host:5432/google_governance?sslmode=require
+   ```
+
+   These are the standard backend variables. Keep the DSN in a protected systemd drop-in or environment file, never in the repo.
+
+6. **Restart one service set and verify**
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl restart google-workspace-governance-control.service
+   curl -fsS http://127.0.0.1:8095/healthz
+
+   sudo systemctl restart google-workspace-governance.service
+   curl -fsS http://127.0.0.1:8768/healthz
+   ```
+
+   In the UI, verify:
+
+   - users still appear,
+   - connected workspaces still appear,
+   - route mappings still appear,
+   - ACL rules still appear,
+   - approval channels still appear,
+   - runtime validation passes, and
+   - a safe read-only MCP test succeeds.
+
+7. **Re-enable traffic**
+
+   Re-add the gateway to the load balancer or restart client traffic only after the health checks and UI inventory checks pass.
+
+8. **Rollback if needed**
+
+   If verification fails, remove or disable the Postgres drop-in, restart both services back on SQLite, and use the backup archive created by the migration pipeline as the rollback anchor. Do not continue writing to both SQLite and Postgres in parallel unless the release explicitly documents dual-write support.
+
+### Cutover rules of thumb
+
+- For one host and one active writer, SQLite is simpler and safer.
+- For multi-host or active-active load balancing, Postgres should become the runtime store before production traffic is balanced.
+- Treat migration as two separate actions: **copy data to Postgres** first, then **cut over runtime storage** after verification.
+- Never expose the Postgres DSN in logs, screenshots, tickets, or committed files.
+
+## 14. Optional Docker evaluation
 
 Docker files are included for evaluation and packaging examples. The primary documented production path is native Linux/systemd because it gives clearer host-level custody, secrets, logs, and service hardening.
 
 If you use Docker, keep secrets and token state in mounted volumes and never bake them into an image.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### Control UI is not reachable
 
@@ -353,4 +474,4 @@ Make sure the OAuth flow includes `openid`, `email`, and `profile` scopes. The b
 
 ### A profile can see the wrong account
 
-Review **Configure workspace routes** and the MCP host's `GOOGLE_GOVERNANCE_TOKEN_ROUTE`. A profile can have multiple routes; explicit `token_route` values are the safest way to disambiguate calls.
+Review **Configure Agent-Workspace Route** and the MCP host's `GOOGLE_GOVERNANCE_TOKEN_ROUTE`. A profile can have multiple routes; explicit `token_route` values are the safest way to disambiguate calls.
