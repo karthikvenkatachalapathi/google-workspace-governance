@@ -111,3 +111,12 @@ A clean documentation/source publish commit should normally include only:
 - tests.
 
 Avoid committing one-off vault notes, local backup files, or machine-specific runtime state.
+
+Before publishing, verify local runtime state is absent from the tracked tree:
+
+```bash
+git ls-files | grep -E '(^database/|^\.google-governance/|\.sqlite$|\.sqlite3$|\.db$)' && exit 1 || true
+git status --ignored --short | grep -E '!! (\.google-governance/|database/)' || true
+```
+
+The first command must print nothing. The second command may show ignored local runtime directories; ignored is expected, tracked is not.

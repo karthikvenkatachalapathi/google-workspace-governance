@@ -46,7 +46,7 @@ git clone <repo-url> google-workspace-governance-gateway
 cd google-workspace-governance-gateway
 ```
 
-The repository no longer ships editable YAML policy seeds. The installer creates SQLite-backed state and runtime JSON policy under `.google-governance/`; routine configuration happens through the admin-only web UI after installation.
+The repository does not ship runtime databases, OAuth custody, logs, backups, or editable YAML policy seeds. The installer creates SQLite-backed state under `./database/` and runtime policy/config state under `./.google-governance/`; both paths are ignored by Git. Routine configuration happens through the admin-only web UI after installation.
 
 ## 2. Install natively with systemd
 
@@ -68,7 +68,7 @@ Default paths are self-contained inside the clone:
 | Control UI service | `google-workspace-governance-control.service` |
 | Service user | `google-workspace-gateway` |
 
-The only host-level artifacts created by the native installer are the two systemd unit files and the dedicated service user/group. Normal operation, OAuth custody, runtime policy, logs, backups, and UI state stay under the clone root (`./.google-governance/` plus `./database/`).
+The only host-level artifacts created by the native installer are the two systemd unit files and the dedicated service user/group. Normal operation, OAuth custody, runtime policy, logs, backups, and UI state stay under the clone root (`./.google-governance/` plus `./database/`). These local state paths are intentionally excluded from the repository by `.gitignore` and `.dockerignore`.
 
 Optional install overrides:
 
@@ -336,7 +336,7 @@ Before executing a live cutover:
 - Require TLS or a private network path between the gateway host and Postgres.
 - Confirm the current gateway release has default Postgres backend support available. The native installer installs the `psycopg` driver and wires `GOOGLE_GOVERNANCE_DB_BACKEND=sqlite` plus an optional blank `GOOGLE_GOVERNANCE_DATABASE_URL` into the gateway, MCP, and control services, so SQLite stays active until an operator deliberately switches the backend.
 - Schedule a short maintenance window. The migration copy is safe, but cutover should be treated as a controlled state transition.
-- Keep the UI/API as the source of truth. Do not hand-edit generated YAML as part of the migration; direct YAML edits are recovery material and may be overwritten by the UI.
+- Keep the UI/API as the source of truth. Do not hand-edit generated runtime policy or local SQLite state as part of the migration; export or restore through the documented UI/API paths so validation, audit, and rollback behavior remain consistent.
 
 ### Recommended migration flow
 
