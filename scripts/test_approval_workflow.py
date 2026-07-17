@@ -449,6 +449,19 @@ def main() -> None:
     if gateway._approval_state().get(approval_id6, {}).get("state") != "approve_once":
         raise SystemExit(f"minimal execute-approved calendar approval did not remain reusable within approval window: {gateway._approval_state().get(approval_id6)}")
 
+    requested_before = sum(1 for row in gateway._approval_events() if row.get("event") == "requested")
+    original_observe = gateway._observe
+    setattr(gateway, "_observe", lambda profile, action, payload, resource_alias=None: {"decision": "ask", "mode": "enforce"})
+    read_retry_payload = dict(payload6)
+    read_retry_payload["request_id"] = "approval-test-minimal-execute-approved-calendar-shifted-window"
+    read_retry_payload["time_min"] = "2026-07-17T00:00:01Z"
+    read_retry_payload["time_max"] = "2026-07-18T00:00:01Z"
+    read_retry_enforcement = gateway._enforce_acl("agent-a", "calendar.get_events", "primary_calendar", read_retry_payload)
+    setattr(gateway, "_observe", original_observe)
+    requested_after = sum(1 for row in gateway._approval_events() if row.get("event") == "requested")
+    if read_retry_enforcement is not None or requested_after != requested_before:
+        raise SystemExit(f"approved read scope retry created another approval or blocked: enforcement={read_retry_enforcement} before={requested_before} after={requested_after}")
+
     payload_concurrent = dict(payload)
     payload_concurrent.update({"request_id": "approval-test-concurrency", "to": "race@example.com", "subject": "Race", "body": "Race body"})
     blocked_concurrent = gateway._governance_blocked("agent-a", dict(payload_concurrent))

@@ -292,7 +292,7 @@ def _operation_for_action(action: str) -> str:
     if "." not in action:
         return action
     suffix = action.split(".", 1)[1]
-    if suffix in {"get", "list", "search", "freebusy"} or suffix.startswith("attachments"):
+    if suffix in {"get", "list", "search", "freebusy", "get_events", "list_calendars", "query_freebusy"} or suffix.startswith("attachments") or suffix.startswith("get_") or suffix.startswith("list_") or suffix.startswith("search_"):
         return "read"
     if suffix in {"draft"}:
         return "write/draft"
@@ -1486,6 +1486,27 @@ def _approval_for_request_hash(request_hash: str, states: set[str]) -> dict[str,
     return matches[0] if matches else None
 
 
+def _approval_action_is_read_grant(action: str) -> bool:
+    return _operation_for_action(action) == "read" and not _is_high_risk_action(action)
+
+
+def _approval_scope_grant(profile: str, action: str, resource_alias: str, payload: dict[str, Any], states: set[str]) -> dict[str, Any] | None:
+    if not _approval_action_is_read_grant(action):
+        return None
+    payload_route = str(payload.get("token_route") or payload.get("token_route_requested") or "").strip()
+    def scope_matches(approval: dict[str, Any]) -> bool:
+        if approval.get("profile") != profile or approval.get("action") != action or approval.get("state") not in states:
+            return False
+        if approval.get("resource_alias") == resource_alias:
+            return True
+        safe = approval.get("safe_metadata") if isinstance(approval.get("safe_metadata"), dict) else {}
+        approval_route = str((safe or {}).get("token_route") or "").strip()
+        return bool(payload_route and approval_route and payload_route == approval_route)
+    matches = [approval for approval in _approval_state().values() if scope_matches(approval)]
+    matches.sort(key=lambda row: str(row.get("updated_at") or row.get("ts") or row.get("created_at") or ""), reverse=True)
+    return matches[0] if matches else None
+
+
 def _pending_approval_for_request(request_hash: str) -> dict[str, Any] | None:
     return _approval_for_request_hash(request_hash, {"pending", "request_edit", "executing"})
 
@@ -2456,12 +2477,17 @@ def _enforce_acl(profile: str, action: str, resource_alias: str, payload: dict[s
         raise PermissionError(f"ACL denied {profile} {action} on {resource_alias}")
     # ask means do not execute now; create a bounded approval request unless an
     # identical request is already pending, approved, executing, or retryable.
-    # Approval is a short-lived grant for this exact request hash, not a single
-    # consumed edge. That lets Telegram/UI approval unblock the originating agent
-    # without generating a fresh approval loop if the client retries within the
-    # expiration window.
+    # For read-only actions, a human approval is a short-lived profile/action/
+    # resource grant; calendar time windows and list pagination can legitimately
+    # change between the approved execution and the agent retry, and must not
+    # create another approval loop.
     request_hash = _approval_request_hash(payload)
     approved = _approval_for_request_hash(request_hash, {"approve_once", "failed_retryable", "executing"})
+    if not approved:
+        approved = _approval_scope_grant(profile, action, resource_alias, payload, {"approve_once", "executing"})
+        if approved and approved.get("state") == "approve_once":
+            _audit_observed(profile, action, "approval_scope_reused", payload, resource_alias, policy_enforced=True, approval_id=approved.get("approval_id"), reason="approved_read_scope_within_ttl")
+            return None
     if approved:
         if approved.get("state") == "executing":
             return {"status": "approval_execution_in_progress", "approval_id": str(approved.get("approval_id") or ""), "approval_state": "executing"}
