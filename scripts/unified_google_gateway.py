@@ -661,6 +661,11 @@ def _approval_db_init(conn: sqlite3.Connection) -> None:
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_approvals_request_hash_state ON approvals(request_hash,state)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_approvals_state_expires ON approvals(state,expires_at)")
+    columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(approvals)").fetchall()}
+    if "executed_at" not in columns:
+        conn.execute("ALTER TABLE approvals ADD COLUMN executed_at TEXT NOT NULL DEFAULT ''")
+    if "execution_result_json" not in columns:
+        conn.execute("ALTER TABLE approvals ADD COLUMN execution_result_json TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_approval_events_approval_id ON approval_events(approval_id)")
     if conn.execute("SELECT COUNT(*) FROM approval_events").fetchone()[0] == 0 and APPROVAL_STORE_PATH.exists():
         for legacy_event in _approval_events():
@@ -735,6 +740,15 @@ def _approval_db_apply_event(event: dict[str, Any], *, conn: sqlite3.Connection 
                 "UPDATE approvals SET state='consumed', consumed_at=?, updated_at=? WHERE approval_id=?",
                 (now, now, approval_id),
             )
+        elif event_name == "executed":
+            conn.execute(
+                """
+                UPDATE approvals
+                SET state='approve_once', executed_at=?, execution_result_json=?, consumed_at=?, updated_at=?
+                WHERE approval_id=?
+                """,
+                (now, json.dumps(event.get("result") or {}, ensure_ascii=False, sort_keys=True), now, now, approval_id),
+            )
         elif event_name == "execution_failed":
             conn.execute(
                 """
@@ -761,6 +775,12 @@ def _approval_row_to_state(row: sqlite3.Row) -> dict[str, Any]:
             item["retry_payload_sealed"] = json.loads(sealed_raw) if sealed_raw else {}
         except json.JSONDecodeError:
             item["retry_payload_sealed"] = {}
+    result_raw = item.get("execution_result_json")
+    if isinstance(result_raw, str):
+        try:
+            item["execution_result"] = json.loads(result_raw) if result_raw else None
+        except json.JSONDecodeError:
+            item["execution_result"] = None
     item["retry_payload_available"] = bool(item.get("retry_payload_available"))
     item["history"] = []
     if _approval_is_expired(item):
@@ -1446,6 +1466,10 @@ def _approval_state() -> dict[str, dict[str, Any]]:
         elif event.get("event") == "consumed":
             current["state"] = "consumed"
             current["consumed_at"] = event.get("ts")
+        elif event.get("event") == "executed":
+            current["state"] = "approve_once"
+            current["executed_at"] = event.get("ts")
+            current["execution_result"] = event.get("result")
         elif event.get("event") == "execution_failed":
             current["state"] = str(event.get("state") or "failed_retryable")
             current["execution_error"] = event.get("error")
@@ -1457,14 +1481,13 @@ def _approval_state() -> dict[str, dict[str, Any]]:
 
 
 def _approval_for_request_hash(request_hash: str, states: set[str]) -> dict[str, Any] | None:
-    for approval in _approval_state().values():
-        if approval.get("request_hash") == request_hash and approval.get("state") in states:
-            return approval
-    return None
+    matches = [approval for approval in _approval_state().values() if approval.get("request_hash") == request_hash and approval.get("state") in states]
+    matches.sort(key=lambda row: str(row.get("updated_at") or row.get("ts") or row.get("created_at") or ""), reverse=True)
+    return matches[0] if matches else None
 
 
 def _pending_approval_for_request(request_hash: str) -> dict[str, Any] | None:
-    return _approval_for_request_hash(request_hash, {"pending", "request_edit"})
+    return _approval_for_request_hash(request_hash, {"pending", "request_edit", "executing"})
 
 
 def _create_approval_request(profile: str, action: str, resource_alias: str, reason: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -1660,6 +1683,10 @@ def _approval_claim_for_execution(approval_id: str, payload: dict[str, Any], *, 
                         raise PermissionError("approval expired")
                 except ValueError as exc:
                     raise PermissionError("approval expiry invalid") from exc
+            if current.get("execution_result") is not None or current.get("execution_result_json"):
+                current["_cached_execution"] = current.get("execution_result")
+                conn.commit()
+                return current
             cursor = conn.execute(
                 "UPDATE approvals SET state='executing', claimed_by=?, claimed_at=?, updated_at=? WHERE approval_id=? AND state='approve_once'",
                 (_APPROVAL_WORKER_ID, now, now, approval_id),
@@ -1710,7 +1737,10 @@ def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
     if not current:
         raise PermissionError("unknown approval_id")
     if already_claimed and current.get("state") != "executing":
-        raise PermissionError(f"approval is not executing: {current.get('state')}")
+        if current.get("state") == "approve_once" and current.get("execution_result") is not None:
+            current["_cached_execution"] = current.get("execution_result")
+        else:
+            raise PermissionError(f"approval is not executing: {current.get('state')}")
     expected_hash = str(current.get("request_hash") or "")
     sealed_hash = str(payload.get("_approval_request_hash") or "")
     request_hash = sealed_hash or _approval_request_hash(payload)
@@ -1719,21 +1749,32 @@ def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
     return current
 
 
-def _mark_approval_consumed(approval_id: str, action: str) -> None:
+def _mark_approval_executed(approval_id: str, action: str, result: dict[str, Any]) -> None:
     now = datetime.now(timezone.utc).isoformat()
     try:
         with _approval_db_conn() as conn:
             _approval_db_init(conn)
             conn.execute("BEGIN IMMEDIATE")
-            cursor = conn.execute("UPDATE approvals SET state='consumed', consumed_at=?, updated_at=? WHERE approval_id=? AND state='executing'", (now, now, approval_id))
+            cursor = conn.execute(
+                """
+                UPDATE approvals
+                SET state='approve_once', executed_at=?, execution_result_json=?, consumed_at=?, updated_at=?
+                WHERE approval_id=? AND state='executing'
+                """,
+                (now, json.dumps(result or {}, ensure_ascii=False, sort_keys=True), now, now, approval_id),
+            )
             if cursor.rowcount != 1:
                 current = conn.execute("SELECT state FROM approvals WHERE approval_id=?", (approval_id,)).fetchone()
                 current_state = str(current["state"] if current else "unknown")
-                raise PermissionError(f"approval consume lost race: {current_state}")
+                raise PermissionError(f"approval execution complete lost race: {current_state}")
             conn.commit()
     except sqlite3.Error as exc:
-        raise PermissionError(f"approval consume failed: {type(exc).__name__}") from exc
-    _append_approval_event({"event": "consumed", "approval_id": approval_id, "action": action, "worker_id": _APPROVAL_WORKER_ID})
+        raise PermissionError(f"approval execution complete failed: {type(exc).__name__}") from exc
+    _append_approval_event({"event": "executed", "approval_id": approval_id, "action": action, "result": result or {}, "worker_id": _APPROVAL_WORKER_ID})
+
+
+def _mark_approval_consumed(approval_id: str, action: str) -> None:
+    _mark_approval_executed(approval_id, action, {})
 
 
 def _mark_approval_execution_failed(approval_id: str, action: str, error: str, *, retryable: bool = True) -> None:
@@ -1745,7 +1786,7 @@ def _mark_approval_execution_failed(approval_id: str, action: str, error: str, *
                 _approval_db_init(conn)
                 conn.execute("BEGIN IMMEDIATE")
                 conn.execute(
-                    "UPDATE approvals SET state=?, execution_error=?, updated_at=? WHERE approval_id=? AND state='executing'",
+                    "UPDATE approvals SET state=?, failure_count=failure_count+1, last_error=?, updated_at=? WHERE approval_id=? AND state='executing'",
                     (state, error, now, approval_id),
                 )
                 conn.commit()
@@ -2414,14 +2455,16 @@ def _enforce_acl(profile: str, action: str, resource_alias: str, payload: dict[s
         _audit_observed(profile, action, "denied", payload, resource_alias, policy_enforced=True)
         raise PermissionError(f"ACL denied {profile} {action} on {resource_alias}")
     # ask means do not execute now; create a bounded approval request unless an
-    # identical request was already approved and is waiting to be consumed. This
-    # covers agents/clients that retry the original call after a human approval
-    # instead of calling /v1/governance/execute-approved with the returned retry
-    # envelope. The retry must consume the original approval, not create a new
-    # approval for the same request hash.
+    # identical request is already pending, approved, executing, or retryable.
+    # Approval is a short-lived grant for this exact request hash, not a single
+    # consumed edge. That lets Telegram/UI approval unblock the originating agent
+    # without generating a fresh approval loop if the client retries within the
+    # expiration window.
     request_hash = _approval_request_hash(payload)
-    approved = _approval_for_request_hash(request_hash, {"approve_once", "failed_retryable"})
+    approved = _approval_for_request_hash(request_hash, {"approve_once", "failed_retryable", "executing"})
     if approved:
+        if approved.get("state") == "executing":
+            return {"status": "approval_execution_in_progress", "approval_id": str(approved.get("approval_id") or ""), "approval_state": "executing"}
         retry_payload = dict(payload)
         retry_payload.setdefault("profile", profile)
         retry_payload.setdefault("action", action)
@@ -3243,6 +3286,8 @@ def _governance_execute_approved(profile: str, payload: dict[str, Any]) -> dict[
     """
     if payload.get("approval_id") and not payload.get("_sealed_retry_payload") and not payload.get("_approval_request_hash"):
         current = _approval_claim_for_execution(str(payload.get("approval_id") or ""), payload, approve_if_pending=False)
+        if current.get("_cached_execution") is not None:
+            return dict(current.get("_cached_execution") or {})
         approval_profile = str(current.get("profile") or profile or payload.get("profile") or "").strip()
         if not approval_profile:
             raise ValueError("approval profile unavailable")
@@ -3259,12 +3304,17 @@ def _governance_execute_approved(profile: str, payload: dict[str, Any]) -> dict[
     action = str(payload.get("action") or "")
     resource_alias = str(payload.get("resource_alias") or resource_for(profile, action, payload))
     approval = _approval_for_execution(payload)
+    if approval.get("_cached_execution") is not None:
+        cached = dict(approval.get("_cached_execution") or {})
+        _audit_observed(profile, action, "approval_replay_cached", payload, resource_alias, approval_id=payload.get("approval_id"), latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
+        return cached
     try:
         result = _execute_high_risk_action(profile, {k: v for k, v in payload.items() if k != "approval_id"})
         status = "ok" if int(result.get("status_code") or 200) < 400 else "error"
-        _mark_approval_consumed(str(payload["approval_id"]), action)
+        response = {"status": "executed" if status == "ok" else "error", "approval_id": payload["approval_id"], "action": action, "resource_alias": resource_alias, "result": result}
+        _mark_approval_executed(str(payload["approval_id"]), action, response)
         _audit_observed(profile, action, status, payload, resource_alias, approval_id=payload["approval_id"], approved_by=approval.get("approver"), latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
-        return {"status": "executed" if status == "ok" else "error", "approval_id": payload["approval_id"], "action": action, "resource_alias": resource_alias, "result": result}
+        return response
     except Exception as exc:
         error_message = f"{type(exc).__name__}: {str(exc)}"[:500]
         _mark_approval_execution_failed(str(payload.get("approval_id") or ""), action, error_message)

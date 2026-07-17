@@ -190,12 +190,9 @@ def main() -> None:
     if len(fake_session.calls) != 1 or fake_session.calls[0][0] != "POST" or "/messages/send" not in fake_session.calls[0][1]:
         raise SystemExit(f"unexpected fake session calls: {fake_session.calls}")
 
-    try:
-        gateway._governance_execute_approved("agent-a", execute_payload)
-    except PermissionError:
-        pass
-    else:
-        raise SystemExit("approve_once token was reusable after consumption")
+    cached_result = gateway._governance_execute_approved("agent-a", execute_payload)
+    if cached_result.get("status") != "executed" or len(fake_session.calls) != 1:
+        raise SystemExit(f"approved retry did not return cached result without re-executing: {cached_result} calls={fake_session.calls}")
 
     payload2 = dict(payload)
     payload2.update({
@@ -257,9 +254,12 @@ def main() -> None:
     original_retry_result = gateway._governance_execute_approved("agent-a", enforcement_retry["_execute_approved_payload"])
     if original_retry_result.get("status") != "executed" or len(fake_session2b.calls) != 1 or fake_session2b.calls[0][0] != "POST" or "/messages/send" not in fake_session2b.calls[0][1]:
         raise SystemExit(f"approved original retry did not execute stored request: {original_retry_result} {fake_session2b.calls}")
-    duplicate_original = gateway._create_approval_request("agent-a", "gmail.send_gmail_message", "requires_approval_approval", "test duplicate", dict(payload2b))
-    if duplicate_original.get("approval_id") == approval_id2b:
-        raise SystemExit("consumed approval was incorrectly reused for a new later request")
+    repeat_enforcement = gateway._enforce_acl("agent-a", "gmail.send_gmail_message", "requires_approval_approval", dict(payload2b))
+    if repeat_enforcement.get("approval_id") != approval_id2b or not repeat_enforcement.get("_execute_approved_payload"):
+        raise SystemExit(f"executed approval was not reused during approval window: {repeat_enforcement}")
+    cached_original_result = gateway._governance_execute_approved("agent-a", repeat_enforcement["_execute_approved_payload"])
+    if cached_original_result.get("status") != "executed" or len(fake_session2b.calls) != 1:
+        raise SystemExit(f"executed approval retry did not return cached result: {cached_original_result} calls={fake_session2b.calls}")
 
     payload2c = dict(payload)
     payload2c.update({
@@ -411,8 +411,8 @@ def main() -> None:
     )
     if auto_result5.get("status") != "executed" or len(fake_session5.calls) != 1 or fake_session5.calls[0][0] != "POST" or "/calendar/v3/calendars/primary/events" not in fake_session5.calls[0][1]:
         raise SystemExit(f"approved workspace tool did not execute original call: {auto_result5} {fake_session5.calls}")
-    if gateway._approval_state().get(approval_id5, {}).get("state") != "consumed":
-        raise SystemExit(f"approved workspace tool was not consumed: {gateway._approval_state().get(approval_id5)}")
+    if gateway._approval_state().get(approval_id5, {}).get("state") != "approve_once":
+        raise SystemExit(f"approved workspace tool did not remain reusable within approval window: {gateway._approval_state().get(approval_id5)}")
 
     payload6 = dict(payload)
     payload6.update({
@@ -446,8 +446,8 @@ def main() -> None:
     )
     if minimal_result6.get("status") != "executed" or len(fake_session6.calls) != 1 or fake_session6.calls[0][0] != "GET" or "/calendar/v3/calendars/primary/events" not in fake_session6.calls[0][1]:
         raise SystemExit(f"minimal execute-approved did not replay stored calendar get_events call: {minimal_result6} {fake_session6.calls}")
-    if gateway._approval_state().get(approval_id6, {}).get("state") != "consumed":
-        raise SystemExit(f"minimal execute-approved calendar approval was not consumed: {gateway._approval_state().get(approval_id6)}")
+    if gateway._approval_state().get(approval_id6, {}).get("state") != "approve_once":
+        raise SystemExit(f"minimal execute-approved calendar approval did not remain reusable within approval window: {gateway._approval_state().get(approval_id6)}")
 
     payload_concurrent = dict(payload)
     payload_concurrent.update({"request_id": "approval-test-concurrency", "to": "race@example.com", "subject": "Race", "body": "Race body"})
@@ -466,12 +466,12 @@ def main() -> None:
         worker.start()
     for worker in workers:
         worker.join(timeout=5)
-    if len([item for item in concurrent_results if item[0] == "ok"]) != 1 or len(fake_session_concurrent.calls) != 1 or gateway._approval_state().get(approval_concurrent, {}).get("state") != "consumed":
+    if len([item for item in concurrent_results if item[0] == "ok"]) < 1 or len(fake_session_concurrent.calls) != 1 or gateway._approval_state().get(approval_concurrent, {}).get("state") != "approve_once":
         raise SystemExit(f"concurrent approve-and-execute was not exactly-once: {concurrent_results} {fake_session_concurrent.calls} {gateway._approval_state().get(approval_concurrent)}")
     with sqlite3.connect(gateway.APPROVAL_DB_PATH) as claim_conn:
         db_state = claim_conn.execute("SELECT state, COUNT(*) FROM approvals WHERE approval_id=? GROUP BY state", (approval_concurrent,)).fetchone()
         claimed_count = claim_conn.execute("SELECT COUNT(*) FROM approval_events WHERE approval_id=? AND event='claimed'", (approval_concurrent,)).fetchone()[0]
-    if db_state != ("consumed", 1) or claimed_count != 1:
+    if db_state != ("approve_once", 1) or claimed_count != 1:
         raise SystemExit(f"SQLite approval claim was not exactly-once: state={db_state} claimed_events={claimed_count}")
 
     old_max_body = gateway.MAX_JSON_BODY_BYTES
@@ -525,8 +525,8 @@ def main() -> None:
         os.environ.pop("GOOGLE_GOVERNANCE_API_TOKENS", None)
     if http_result6.get("status") != "executed" or http_result6.get("profile") != "daily-assistant" or not fake_session6.calls:
         raise SystemExit(f"HTTP approval-admin approve-and-execute failed: {http_result6} {fake_session6.calls}")
-    if gateway._approval_state().get(approval_id6, {}).get("state") != "consumed":
-        raise SystemExit(f"HTTP approval-admin request was not consumed: {gateway._approval_state().get(approval_id6)}")
+    if gateway._approval_state().get(approval_id6, {}).get("state") != "approve_once":
+        raise SystemExit(f"HTTP approval-admin request did not remain reusable within approval window: {gateway._approval_state().get(approval_id6)}")
 
     telegram_posts = []
     class FakeTelegramResponse:
