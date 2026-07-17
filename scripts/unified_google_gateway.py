@@ -63,6 +63,7 @@ _METRIC_LOCK = Lock()
 _APPROVAL_EXECUTION_LOCK = Lock()
 _APPROVAL_WORKER_ID = f"pid-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 _AUDIT_TOTAL: Counter[tuple[str, str, str, str]] = Counter()
+_AUDIT_DIM_TOTAL: Counter[tuple[str, str, str, str, str, str, str, str, str, str]] = Counter()
 _LATENCY_SUM_MS: Counter[tuple[str, str, str, str]] = Counter()
 _LATENCY_COUNT: Counter[tuple[str, str, str, str]] = Counter()
 
@@ -174,6 +175,7 @@ def _prom_label(value: Any) -> str:
 def _metrics_text() -> str:
     with _METRIC_LOCK:
         rows = list(_AUDIT_TOTAL.items())
+        dim_rows = list(_AUDIT_DIM_TOTAL.items())
         latency_sum_rows = list(_LATENCY_SUM_MS.items())
         latency_count_rows = list(_LATENCY_COUNT.items())
     lines = [
@@ -193,6 +195,25 @@ def _metrics_text() -> str:
             f'action="{_prom_label(action)}",'
             f'status="{_prom_label(status)}",'
             f'decision="{_prom_label(decision)}"'
+            f'}} {count}'
+        )
+    lines.extend([
+        "# HELP google_workspace_governance_requests_total Governance requests by bounded operator dimensions.",
+        "# TYPE google_workspace_governance_requests_total counter",
+    ])
+    for (agent, framework, gateway_principal, google_account, service, operation, decision, risk_level, approval_requirement, status), count in sorted(dim_rows):
+        lines.append(
+            'google_workspace_governance_requests_total{'
+            f'agent="{_prom_label(agent)}",'
+            f'framework="{_prom_label(framework)}",'
+            f'gateway_principal="{_prom_label(gateway_principal)}",'
+            f'google_account="{_prom_label(google_account)}",'
+            f'service="{_prom_label(service)}",'
+            f'operation="{_prom_label(operation)}",'
+            f'decision="{_prom_label(decision)}",'
+            f'risk_level="{_prom_label(risk_level)}",'
+            f'approval_requirement="{_prom_label(approval_requirement)}",'
+            f'status="{_prom_label(status)}"'
             f'}} {count}'
         )
     lines.extend([
@@ -283,7 +304,104 @@ def _operation_for_action(action: str) -> str:
 
 
 def _is_high_risk_action(action: str) -> bool:
-    return action in {"gmail.send", "drive.share", "drive.delete", "calendar.delete"}
+    action = str(action or "")
+    high_exact = {
+        "gmail.send", "gmail.send_gmail_message", "gmail.delete",
+        "calendar.delete", "calendar.manage_event",
+        "drive.share", "drive.delete", "drive.manage_drive_access", "drive.set_drive_file_permissions",
+        "sheets.batch_update", "sheets.modify_sheet_values", "sheets.append_table_rows",
+        "docs.batch_update_doc", "docs.modify_doc_text",
+    }
+    high_fragments = ("delete", "share", "permission", "send", "batch", "bulk", "attendee", "modify", "update", "create")
+    return action in high_exact or any(part in action for part in high_fragments)
+
+
+def _risk_level_for_action(action: str, resource_alias: str | None = None) -> str:
+    operation = _operation_for_action(action)
+    if _is_high_risk_action(action):
+        return "high"
+    if _is_unknown_resource(resource_alias):
+        return "medium"
+    if operation.startswith("write") or operation in {"create", "update", "modify", "append", "copy"}:
+        return "medium"
+    return "low"
+
+
+def _short_hash(value: Any, length: int = 12) -> str:
+    raw = str(value or "")
+    if not raw:
+        return ""
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:length]
+
+
+def _safe_fingerprint(value: Any, prefix: str = "sha256") -> str:
+    digest = _short_hash(value, 16)
+    return f"{prefix}:{digest}" if digest else ""
+
+
+def _scopes_for_action(action: str) -> list[str]:
+    service = _service_for_action(action)
+    if service == "gmail":
+        if "send" in action:
+            return ["https://www.googleapis.com/auth/gmail.send"]
+        if any(x in action for x in ("modify", "label", "filter", "delete")):
+            return ["https://www.googleapis.com/auth/gmail.modify"]
+        return ["https://www.googleapis.com/auth/gmail.readonly"]
+    if service == "calendar":
+        return ["https://www.googleapis.com/auth/calendar"]
+    if service == "drive":
+        return ["https://www.googleapis.com/auth/drive"]
+    if service == "docs":
+        return ["https://www.googleapis.com/auth/documents"]
+    if service == "sheets":
+        return ["https://www.googleapis.com/auth/spreadsheets"]
+    if service == "slides":
+        return ["https://www.googleapis.com/auth/presentations"]
+    if service in {"contacts", "people"}:
+        return ["https://www.googleapis.com/auth/contacts.readonly"]
+    return []
+
+
+def _normalize_scopes(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [x for x in value.split() if x]
+    if isinstance(value, (list, tuple, set)):
+        return sorted({str(x) for x in value if str(x)})
+    return []
+
+
+def _token_observability_context(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
+    route = str(payload.get("token_route") or "default")
+    ctx: dict[str, Any] = {"token_route": route}
+    try:
+        token_id = _token_id_for_route(profile, route)
+        ctx["workspace_token_id"] = token_id
+        ctx["workspace_token_fingerprint"] = _safe_fingerprint(token_id)
+        if "/" in token_id:
+            ctx.setdefault("google_account", token_id.split("/", 1)[0])
+        stored = _workspace_token_from_db(token_id)
+        if stored:
+            ctx["google_account"] = str(stored.get("account_alias") or ctx.get("google_account") or "")
+            if stored.get("email"):
+                ctx["google_account_email_hash"] = _safe_fingerprint(stored.get("email"))
+            email = str(stored.get("email") or "")
+            ctx["workspace_domain"] = email.split("@", 1)[-1] if "@" in email else ""
+            ctx["granted_scopes"] = _normalize_scopes(stored.get("scopes"))
+    except Exception as exc:
+        ctx["route_resolution_error"] = type(exc).__name__
+    return ctx
+
+
+def _framework_for_payload(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("agent_framework") or payload.get("framework") or payload.get("client_framework") or "").strip()
+    if explicit:
+        return explicit
+    client = str(payload.get("client") or "").strip().lower()
+    if client:
+        return client
+    if payload.get("_tool") or str(payload.get("_gateway_path") or "").startswith("/v1/tools/"):
+        return "mcp"
+    return "unknown"
 
 
 def _is_unknown_resource(resource_alias: str | None) -> bool:
@@ -304,14 +422,18 @@ def _audit(profile: str, action: str, status: str, **fields: Any) -> None:
             fields["latency_ms"] = latency_ms
         except ValueError:
             latency_ms = None
+    ts = datetime.now(timezone.utc).isoformat()
     row = {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": ts,
+        "timestamp": ts,
         "gateway": "unified",
         "profile": profile,
+        "agent": str(fields.get("agent") or profile),
         "service": str(fields.get("service") or _service_for_action(action)),
         "operation": str(fields.get("operation") or _operation_for_action(action)),
         "token_route": str(fields.get("token_route") or "default"),
         "resource_alias": resource_alias,
+        "resource": str(fields.get("resource") or resource_alias),
         "action": action,
         "decision": str(fields.get("decision") or ""),
         "status": status,
@@ -319,10 +441,19 @@ def _audit(profile: str, action: str, status: str, **fields: Any) -> None:
         "unknown_resource": bool(fields.get("unknown_resource", _is_unknown_resource(resource_alias))),
         **fields,
     }
+    row.setdefault("risk_level", _risk_level_for_action(action, resource_alias))
+    row.setdefault("approval_requirement", "required" if str(row.get("decision") or "") in {"ask", "approval_required"} else "not_required")
+    row.setdefault("gateway_principal", row.get("profile") or profile)
+    row.setdefault("framework", "unknown")
+    row.setdefault("google_account", "unknown")
+    row.setdefault("requested_scopes", [])
+    row.setdefault("granted_scopes", [])
     decision = str(row.get("decision") or "")
     metric_key = (profile, action, status, decision)
+    dim_key = (str(row.get("agent") or profile), str(row.get("framework") or "unknown"), str(row.get("gateway_principal") or profile), str(row.get("google_account") or "unknown"), str(row.get("service") or "unknown"), str(row.get("operation") or "unknown"), decision or "unknown", str(row.get("risk_level") or "unknown"), str(row.get("approval_requirement") or "unknown"), status)
     with _METRIC_LOCK:
         _AUDIT_TOTAL[metric_key] += 1
+        _AUDIT_DIM_TOTAL[dim_key] += 1
         if latency_ms is not None:
             _LATENCY_SUM_MS[metric_key] += latency_ms
             _LATENCY_COUNT[metric_key] += 1
@@ -2292,8 +2423,26 @@ def _audit_observed(profile: str, action: str, status: str, payload: dict[str, A
     fields.setdefault("token_route", str(payload.get("token_route") or "default"))
     fields.setdefault("high_risk_action", _is_high_risk_action(action))
     fields.setdefault("unknown_resource", _is_unknown_resource(resolved_resource))
+    fields.setdefault("risk_level", _risk_level_for_action(action, resolved_resource))
+    fields.setdefault("requested_scopes", _normalize_scopes(payload.get("requested_scopes") or payload.get("scopes")) or _scopes_for_action(action))
+    token_ctx = _token_observability_context(profile, payload)
+    for ctx_key, ctx_value in token_ctx.items():
+        fields.setdefault(ctx_key, ctx_value)
+    fields.setdefault("granted_scopes", _normalize_scopes(fields.get("granted_scopes")))
+    fields.setdefault("agent", profile)
+    fields.setdefault("framework", _framework_for_payload(payload))
+    fields.setdefault("gateway_principal", str((payload.get("_governance_identity") or {}).get("agent_id") or profile))
+    if payload.get("principal_assertion"):
+        fields.setdefault("principal_assertion_fingerprint", _safe_fingerprint(payload.get("principal_assertion")))
+    if payload.get("session_id"):
+        fields.setdefault("session_id", _safe_fingerprint(payload.get("session_id"), "session"))
     if payload.get("request_id"):
         fields.setdefault("request_id", str(payload["request_id"]))
+    if payload.get("trace_id"):
+        fields.setdefault("trace_id", str(payload["trace_id"]))
+    fields.setdefault("approval_requirement", "required" if str(fields.get("decision") or observe.get("decision") or "") in {"ask", "approval_required"} else "not_required")
+    fields.setdefault("decision_reason", str(fields.get("reason") or observe.get("decision_source") or ""))
+    fields.setdefault("policy", str(observe.get("decision_source") or observe.get("mode") or ""))
     if payload.get("workflow_intent") or payload.get("workflow"):
         fields.setdefault("workflow_intent", str(payload.get("workflow_intent") or payload.get("workflow")))
     request_fingerprint_src = json.dumps(_redact_payload(payload), sort_keys=True, default=str)
@@ -3360,6 +3509,10 @@ class Handler(BaseHTTPRequestHandler):
                 return
             claims = _verify_jwt(self.headers.get("Authorization", ""))
             payload = _read_json_body(self)
+            payload.setdefault("request_id", self.headers.get("X-Request-ID") or self.headers.get("X-Google-Governance-Request-ID") or str(uuid.uuid4()))
+            payload.setdefault("trace_id", self.headers.get("X-Trace-ID") or self.headers.get("traceparent") or payload.get("request_id"))
+            if self.headers.get("X-Agent-Framework"):
+                payload.setdefault("agent_framework", self.headers.get("X-Agent-Framework"))
             _apply_on_behalf_headers(payload, self.headers)
             fn = ROUTES.get(self.path)
             if not fn:

@@ -385,6 +385,46 @@ def assert_gateway_upstream_payload_adapters() -> None:
         raise SystemExit(f"manage_drive_access action=revoke did not route to permission DELETE: {drive_revoke}")
 
 
+def assert_gateway_observability_fields() -> None:
+    gateway = _load_gateway_module()
+    _install_test_workspace_token_db(gateway)
+    gateway.AUDIT_PATH.write_text("", encoding="utf-8")
+    gateway._AUDIT_TOTAL.clear()
+    gateway._AUDIT_DIM_TOTAL.clear()
+    gateway._LATENCY_SUM_MS.clear()
+    gateway._LATENCY_COUNT.clear()
+    payload = {
+        "request_id": "req-observe-1",
+        "trace_id": "trace-observe-1",
+        "token_route": "agent-b/workspace-shared",
+        "agent_framework": "mcp",
+        "principal_assertion": "raw-principal-assertion-must-not-appear",
+        "session_id": "raw-session-id-must-not-appear",
+    }
+    gateway._audit_observed("agent-b", "gmail.send_gmail_message", "approval_required", payload, "gmail_workspace_shared")
+    rows = [json.loads(line) for line in gateway.AUDIT_PATH.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(rows) != 1:
+        raise SystemExit(f"expected one observability audit row, got {rows}")
+    row = rows[0]
+    required = {
+        "timestamp", "agent", "framework", "gateway_principal", "google_account", "service", "operation", "resource",
+        "requested_scopes", "granted_scopes", "policy", "decision", "decision_reason", "risk_level", "approval_requirement",
+        "request_id", "trace_id", "principal_assertion_fingerprint", "session_id", "workspace_token_fingerprint",
+    }
+    missing = sorted(required - set(row))
+    if missing:
+        raise SystemExit(f"observability audit row missing fields: {missing}; row={row}")
+    encoded = json.dumps(row, sort_keys=True)
+    if "raw-principal-assertion" in encoded or "raw-session-id" in encoded:
+        raise SystemExit(f"observability audit row leaked a raw assertion/session value: {row}")
+    if row.get("framework") != "mcp" or row.get("google_account") != "workspace-shared" or row.get("risk_level") != "high":
+        raise SystemExit(f"observability audit row had unexpected dimensions: {row}")
+    metrics = gateway._metrics_text()
+    for expected in ["google_workspace_governance_requests_total", 'framework="mcp"', 'google_account="workspace-shared"', 'risk_level="high"']:
+        if expected not in metrics:
+            raise SystemExit(f"observability metric missing {expected}: {metrics}")
+
+
 def assert_mcp_module_static_shape() -> dict[str, object]:
     source = MCP_SCRIPT.read_text(encoding="utf-8")
     missing = [name for name in EXPECTED_TOOLS if f"def {name}" not in source and f"async def {name}" not in source]
@@ -406,6 +446,7 @@ async def main() -> None:
     assert_gateway_action_mapping()
     assert_gateway_two_token_identity()
     assert_gateway_upstream_payload_adapters()
+    assert_gateway_observability_fields()
     static = assert_mcp_module_static_shape()
     print(json.dumps({"status": "PASS", "legacy_google_tools_exposed": 0, "action_mapping_cases": len(ACTION_CASES), **static}, indent=2))
 
