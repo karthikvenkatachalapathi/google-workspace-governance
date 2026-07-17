@@ -12,7 +12,7 @@
 
 *A self-hosted governance layer for Google Workspace access by AI agents, MCP clients, scripts, and automations.*
 
-*Inspired by and crediting the excellent [`taylorwilsdon/google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) project. This repository keeps the Workspace MCP-style Google tool surface, then adds a gateway, policy engine, approval workflow, audit trail, and admin control plane around it.*
+*Inspired by the excellent [`taylorwilsdon/google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) project. This repository keeps the Workspace MCP-style Google tool surface, then adds a gateway, policy engine, approval workflow, audit trail, and admin control plane around it.*
 
 </div>
 
