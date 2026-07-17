@@ -332,9 +332,16 @@ resources:
         "if(!isAdmin())return; if(active==='settings'&&settingsMode==='admin'",
         "const adminGo=(section,sub)=>{if(!isAdmin())return;",
     ]
+    forbidden_ui_after_gateway_setup = [
+        "'adminNav-workspace','adminNav-channels'",
+        '"adminNav-workspace","adminNav-channels"',
+    ]
     for marker in required_ui:
         if marker not in html:
             raise SystemExit(f"multi-tenant RBAC UI marker missing: {marker}")
+    for marker in forbidden_ui_after_gateway_setup:
+        if marker in html:
+            raise SystemExit(f"Gateway Setup submenu item must not be force-shown outside gatewaySetupExpanded: {marker}")
     for marker in forbidden_ui:
         if marker in html:
             raise SystemExit(f"obsolete UI marker still present: {marker}")
