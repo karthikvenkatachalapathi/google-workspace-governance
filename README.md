@@ -6,9 +6,9 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 
 ## Demo
 
-[DEMO](https://governance-gateway-demo.pages.dev/) | [SCREENSHOTS](docs/SCREENSHOTS.md)
-
 The demo uses the real control-plane UI shell and navigation with mock data only; it does not connect to Google, send requests to a live gateway, or expose real credentials.
+
+[DEMO](https://governance-gateway-demo.pages.dev/) | [SCREENSHOTS](docs/SCREENSHOTS.md)
 
 ## Feature set
 
