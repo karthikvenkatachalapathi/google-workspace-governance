@@ -1456,11 +1456,15 @@ def _approval_state() -> dict[str, dict[str, Any]]:
     return state
 
 
-def _pending_approval_for_request(request_hash: str) -> dict[str, Any] | None:
+def _approval_for_request_hash(request_hash: str, states: set[str]) -> dict[str, Any] | None:
     for approval in _approval_state().values():
-        if approval.get("request_hash") == request_hash and approval.get("state") == "pending":
+        if approval.get("request_hash") == request_hash and approval.get("state") in states:
             return approval
     return None
+
+
+def _pending_approval_for_request(request_hash: str) -> dict[str, Any] | None:
+    return _approval_for_request_hash(request_hash, {"pending", "request_edit"})
 
 
 def _create_approval_request(profile: str, action: str, resource_alias: str, reason: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -2396,7 +2400,23 @@ def _enforce_acl(profile: str, action: str, resource_alias: str, payload: dict[s
     if value == "deny":
         _audit_observed(profile, action, "denied", payload, resource_alias, policy_enforced=True)
         raise PermissionError(f"ACL denied {profile} {action} on {resource_alias}")
-    # ask means do not execute now; create a bounded approval request.
+    # ask means do not execute now; create a bounded approval request unless an
+    # identical request was already approved and is waiting to be consumed. This
+    # covers agents/clients that retry the original call after a human approval
+    # instead of calling /v1/governance/execute-approved with the returned retry
+    # envelope. The retry must consume the original approval, not create a new
+    # approval for the same request hash.
+    request_hash = _approval_request_hash(payload)
+    approved = _approval_for_request_hash(request_hash, {"approve_once", "failed_retryable"})
+    if approved:
+        retry_payload = dict(payload)
+        retry_payload.setdefault("profile", profile)
+        retry_payload.setdefault("action", action)
+        retry_payload.setdefault("resource_alias", resource_alias)
+        retry_payload["approval_id"] = str(approved.get("approval_id") or "")
+        retry_payload["_approval_request_hash"] = str(approved.get("request_hash") or request_hash)
+        retry_payload["_sealed_retry_payload"] = True
+        return {"status": "approval_retry_ready", "approval_id": retry_payload["approval_id"], "_execute_approved_payload": retry_payload}
     reason = str(payload.get("reason") or f"ACL requires approval for {action}")
     approval = _create_approval_request(profile, action, resource_alias, reason, payload)
     _audit_observed(profile, action, "approval_required", payload, resource_alias, policy_enforced=True, approval_id=approval["approval_id"], reason=reason)
@@ -3557,6 +3577,13 @@ class Handler(BaseHTTPRequestHandler):
                 policy_action, policy_resource = _route_policy_context(self.path, profile, payload)
                 enforcement = _enforce_acl(profile, policy_action, policy_resource, payload)
                 if enforcement is not None:
+                    execute_payload = enforcement.get("_execute_approved_payload") if isinstance(enforcement, dict) else None
+                    if isinstance(execute_payload, dict):
+                        result = _governance_execute_approved(profile, execute_payload)
+                        if isinstance(result, dict):
+                            result.setdefault("agent_id", profile)
+                        _json_response(self, 200, result)
+                        return
                     _json_response(self, 200, enforcement)
                     return
             result = fn(profile, payload)

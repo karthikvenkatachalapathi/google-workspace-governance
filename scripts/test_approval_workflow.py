@@ -225,6 +225,42 @@ def main() -> None:
     if len(fake_session2.calls) != 1 or fake_session2.calls[0][0] != "POST" or "/messages/send" not in fake_session2.calls[0][1]:
         raise SystemExit(f"unexpected approve-and-execute fake session calls: {fake_session2.calls}")
 
+    payload2b = dict(payload)
+    payload2b.update({
+        "request_id": "approval-test-original-retry-created",
+        "to": "original-retry@example.com",
+        "subject": "Original Retry test",
+        "body": "offline original retry body",
+    })
+    blocked2b = gateway._governance_blocked("agent-a", dict(payload2b))
+    approval_id2b = blocked2b.get("approval_id")
+    gateway._approval_decide(
+        "agent-a",
+        {
+            "approval_admin_secret": "approval-test-secret",
+            "approval_id": approval_id2b,
+            "decision": "approve_once",
+            "approver": "legacy_admin",
+            "ttl_seconds": 300,
+        },
+    )
+    original_observe = gateway._observe
+    setattr(gateway, "_observe", lambda profile, action, payload, resource_alias=None: {"decision": "ask", "mode": "enforce"})
+    retry_original_payload = dict(payload2b)
+    retry_original_payload["request_id"] = "approval-test-original-retry-second-client-call"
+    enforcement_retry = gateway._enforce_acl("agent-a", "gmail.send_gmail_message", "requires_approval_approval", retry_original_payload)
+    setattr(gateway, "_observe", original_observe)
+    if not isinstance(enforcement_retry, dict) or enforcement_retry.get("approval_id") != approval_id2b or not isinstance(enforcement_retry.get("_execute_approved_payload"), dict):
+        raise SystemExit(f"approved original retry did not resolve to original approval: {enforcement_retry}")
+    fake_session2b = FakeSession()
+    setattr(gateway, "_session", lambda profile, route=None: fake_session2b)
+    original_retry_result = gateway._governance_execute_approved("agent-a", enforcement_retry["_execute_approved_payload"])
+    if original_retry_result.get("status") != "executed" or len(fake_session2b.calls) != 1 or fake_session2b.calls[0][0] != "POST" or "/messages/send" not in fake_session2b.calls[0][1]:
+        raise SystemExit(f"approved original retry did not execute stored request: {original_retry_result} {fake_session2b.calls}")
+    duplicate_original = gateway._create_approval_request("agent-a", "gmail.send_gmail_message", "requires_approval_approval", "test duplicate", dict(payload2b))
+    if duplicate_original.get("approval_id") == approval_id2b:
+        raise SystemExit("consumed approval was incorrectly reused for a new later request")
+
     audit_rows = [json.loads(line) for line in gateway.AUDIT_PATH.read_text(encoding="utf-8").splitlines()]
     if not any(row.get("approval_id") == approval_id and row.get("status") == "ok" and row.get("action") == "gmail.send_gmail_message" for row in audit_rows):
         raise SystemExit("execution audit row missing")
