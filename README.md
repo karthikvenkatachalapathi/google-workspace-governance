@@ -4,11 +4,22 @@ A self-hosted governance gateway for Google Workspace access by AI agents, MCP c
 
 Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an admin-only browser control plane for setup and day-to-day administration.
 
-## Hosted demo
+## Hosted demo and screenshots
 
-Walk through a demo at [governance-gateway-demo.pages.dev](https://governance-gateway-demo.pages.dev/). The demo is a product walkthrough with mock data only; it does not connect to Google, send requests to a live gateway, or expose real credentials.
+Walk through the inert static demo at [governance-gateway-demo.pages.dev](https://governance-gateway-demo.pages.dev/). The demo uses the real control-plane UI shell and navigation with mock data only; it does not connect to Google, send requests to a live gateway, or expose real credentials.
 
-![Google Agent Gateway login screen](docs/assets/demo-login-screen.jpg)
+| View | Screenshot |
+| --- | --- |
+| Login | ![Google Agent Gateway login screen](docs/assets/screenshots/01-login.png) |
+| ACL rules | ![ACL rules](docs/assets/screenshots/02-acl-rules.png) |
+| Approvals | ![Approvals](docs/assets/screenshots/03-approvals.png) |
+| Access logs | ![Access logs](docs/assets/screenshots/04-access-logs.png) |
+| MCP tools | ![MCP tools](docs/assets/screenshots/05-mcp-tools.png) |
+| Gateway Setup — MCP Authorization | ![MCP Authorization](docs/assets/screenshots/06-gateway-setup-mcp-authorization.png) |
+| Gateway Setup — Workspace Configuration | ![Workspace Configuration](docs/assets/screenshots/07-workspace-configuration.png) |
+| Gateway Setup — Channel Configuration | ![Channel Configuration](docs/assets/screenshots/08-channel-configuration.png) |
+| Admin Settings — Runtime Status | ![Runtime Status](docs/assets/screenshots/09-runtime-status.png) |
+| Admin Settings — Runtime Backups | ![Runtime Backups](docs/assets/screenshots/10-runtime-backups.png) |
 
 ## Feature set
 
