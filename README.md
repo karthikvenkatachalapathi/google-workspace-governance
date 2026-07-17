@@ -147,6 +147,54 @@ The goal is simple: keep the useful Workspace MCP experience, but make it accoun
 
 ---
 
+## Quick Start
+
+> Install services → create admin → connect Workspace → map agent route → set policy → connect MCP client
+
+```bash
+git clone <your-fork-url> google-workspace-governance-gateway
+cd google-workspace-governance-gateway
+sudo PROJECT_DIR="$PWD" bash scripts/install_systemd.sh
+sudo bash scripts/verify_systemd.sh
+```
+
+Open the control UI:
+
+```text
+http://localhost:8095/
+```
+
+Create the first admin user with the setup token:
+
+```bash
+sudo cat .google-governance/config/control_setup_token
+```
+
+The native installer is self-contained: runtime copy, venv, SQLite state, OAuth custody, setup secrets, logs, and backups live under `./.google-governance/` plus `./database/` inside the clone. Those paths are runtime state and are ignored by Git.
+
+| Service | Purpose | Default bind |
+|---|---|---|
+| `google-workspace-governance.service` | Private gateway API used by agents/tools | `127.0.0.1:8768` |
+| `google-workspace-governance-control.service` | Browser control UI for OAuth, route mapping, ACLs, logs, health | `127.0.0.1:8095` |
+
+---
+
+## Normal setup flow
+
+1. Install the services with [`SETUP.md`](SETUP.md).
+2. Open the control UI and create the first admin user.
+3. In Google Cloud Console, create a Google OAuth **Desktop App** client and download `client_secret.json`.
+4. In the control UI, go to **Admin settings → Google Workspace → Configure new workspace**.
+5. Upload/paste the Desktop App `client_secret.json` and complete Google consent.
+6. Go to **Configure Agent Identity** and create or select the agent/workload identity.
+7. Go to **Configure Agent-Workspace Route** and map profiles to connected account routes.
+8. Go to **ACL rules** and set `allow`, `ask`, or `deny` for each profile/action/service row.
+9. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, optional default route, a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, and an agent-specific `GOOGLE_GOVERNANCE_AGENT_TOKEN`.
+
+The admin UI/API is the source of truth for workspace connections, routes, ACLs, approvals, and runtime policy generation.
+
+---
+
 ## How this differs from a Google Workspace MCP server
 
 Most Workspace MCP servers solve connectivity: they expose useful Google Workspace actions to an AI assistant or developer tool.
@@ -245,54 +293,6 @@ Expected operating model:
 7. Approvals and audits continue through the governance layer.
 
 The demo uses the real control-plane UI shell and navigation with mock data only. It does not connect to Google, send requests to a live gateway, or expose real credentials.
-
----
-
-## Quick Start
-
-> Install services → create admin → connect Workspace → map agent route → set policy → connect MCP client
-
-```bash
-git clone <your-fork-url> google-workspace-governance-gateway
-cd google-workspace-governance-gateway
-sudo PROJECT_DIR="$PWD" bash scripts/install_systemd.sh
-sudo bash scripts/verify_systemd.sh
-```
-
-Open the control UI:
-
-```text
-http://localhost:8095/
-```
-
-Create the first admin user with the setup token:
-
-```bash
-sudo cat .google-governance/config/control_setup_token
-```
-
-The native installer is self-contained: runtime copy, venv, SQLite state, OAuth custody, setup secrets, logs, and backups live under `./.google-governance/` plus `./database/` inside the clone. Those paths are runtime state and are ignored by Git.
-
-| Service | Purpose | Default bind |
-|---|---|---|
-| `google-workspace-governance.service` | Private gateway API used by agents/tools | `127.0.0.1:8768` |
-| `google-workspace-governance-control.service` | Browser control UI for OAuth, route mapping, ACLs, logs, health | `127.0.0.1:8095` |
-
----
-
-## Normal setup flow
-
-1. Install the services with [`SETUP.md`](SETUP.md).
-2. Open the control UI and create the first admin user.
-3. In Google Cloud Console, create a Google OAuth **Desktop App** client and download `client_secret.json`.
-4. In the control UI, go to **Admin settings → Google Workspace → Configure new workspace**.
-5. Upload/paste the Desktop App `client_secret.json` and complete Google consent.
-6. Go to **Configure Agent Identity** and create or select the agent/workload identity.
-7. Go to **Configure Agent-Workspace Route** and map profiles to connected account routes.
-8. Go to **ACL rules** and set `allow`, `ask`, or `deny` for each profile/action/service row.
-9. Connect your agent/MCP host to `.google-governance/runtime/governed_google_mcp.py` using the gateway URL, optional default route, a UI-generated `GOOGLE_GOVERNANCE_ACCESS_TOKEN`, and an agent-specific `GOOGLE_GOVERNANCE_AGENT_TOKEN`.
-
-The admin UI/API is the source of truth for workspace connections, routes, ACLs, approvals, and runtime policy generation.
 
 ---
 
