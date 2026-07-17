@@ -6,13 +6,22 @@ Instead of giving every agent a broad Google OAuth refresh token, agents call th
 
 ## UI screenshots and demo
 
-A sanitized, no-credentials demo is included under [`docs/demo/`](docs/demo/). If GitHub Pages is enabled for this repository's `docs/` folder, it can be published as:
+A sanitized, no-credentials demo is included under [`docs/demo/`](docs/demo/). The demo uses mock data only. It does not connect to Google, store tokens, or call live APIs.
 
-```text
-https://<github-owner>.github.io/google-workspace-governance/demo/
+Cloudflare Pages is the recommended public demo host:
+
+| Cloudflare Pages setting | Value |
+|---|---|
+| Framework preset | None / Static HTML |
+| Build command | leave blank |
+| Build output directory | `docs` |
+| Root route | redirects to `/demo/` |
+
+One-off deploy with Wrangler:
+
+```bash
+npx wrangler pages deploy docs --project-name google-workspace-governance-demo
 ```
-
-The demo uses mock data only. It does not connect to Google, store tokens, or call live APIs.
 
 | ACL governance | Workspace setup |
 |---|---|
