@@ -1738,6 +1738,19 @@ def _mark_approval_consumed(approval_id: str, action: str) -> None:
 
 def _mark_approval_execution_failed(approval_id: str, action: str, error: str, *, retryable: bool = True) -> None:
     state = "failed_retryable" if retryable else "failed_terminal"
+    now = datetime.now(timezone.utc).isoformat()
+    if approval_id:
+        try:
+            with _approval_db_conn() as conn:
+                _approval_db_init(conn)
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    "UPDATE approvals SET state=?, execution_error=?, updated_at=? WHERE approval_id=? AND state='executing'",
+                    (state, error, now, approval_id),
+                )
+                conn.commit()
+        except sqlite3.Error:
+            pass
     _append_approval_event({"event": "execution_failed", "approval_id": approval_id, "action": action, "error": error, "state": state, "worker_id": _APPROVAL_WORKER_ID})
 
 

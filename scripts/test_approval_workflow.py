@@ -261,6 +261,48 @@ def main() -> None:
     if duplicate_original.get("approval_id") == approval_id2b:
         raise SystemExit("consumed approval was incorrectly reused for a new later request")
 
+    payload2c = dict(payload)
+    payload2c.update({
+        "request_id": "approval-test-failed-execution-created",
+        "action": "drive.share",
+        "resource_alias": "drive_any",
+        "file_id": "file-id",
+        "email": "failed-retry@example.com",
+        "role": "reader",
+    })
+    blocked2c = gateway._governance_blocked("agent-a", dict(payload2c))
+    approval_id2c = blocked2c.get("approval_id")
+    gateway._approval_decide(
+        "agent-a",
+        {
+            "approval_admin_secret": "approval-test-secret",
+            "approval_id": approval_id2c,
+            "decision": "approve_once",
+            "approver": "legacy_admin",
+            "ttl_seconds": 300,
+        },
+    )
+    class FailingSession(FakeSession):
+        def post(self, url: str, **kwargs: Any) -> FakeResponse:
+            raise RuntimeError("simulated google failure")
+    setattr(gateway, "_session", lambda profile, route=None: FailingSession())
+    failed_payload = dict((blocked2c.get("retry_after_approval") or {}).get("retry_payload") or {})
+    try:
+        gateway._governance_execute_approved("agent-a", failed_payload)
+    except RuntimeError:
+        pass
+    else:
+        raise SystemExit("simulated failed execution unexpectedly succeeded")
+    failed_state = gateway._approval_state().get(approval_id2c, {})
+    if failed_state.get("state") != "failed_retryable":
+        raise SystemExit(f"failed execution did not persist failed_retryable in sqlite state: {failed_state}")
+    original_observe = gateway._observe
+    setattr(gateway, "_observe", lambda profile, action, payload, resource_alias=None: {"decision": "ask", "mode": "enforce"})
+    failed_retry_enforcement = gateway._enforce_acl("agent-a", "drive.share", "drive_any", dict(payload2c))
+    setattr(gateway, "_observe", original_observe)
+    if failed_retry_enforcement.get("approval_id") != approval_id2c or not failed_retry_enforcement.get("_execute_approved_payload"):
+        raise SystemExit(f"failed_retryable original retry created/returned wrong approval: {failed_retry_enforcement}")
+
     audit_rows = [json.loads(line) for line in gateway.AUDIT_PATH.read_text(encoding="utf-8").splitlines()]
     if not any(row.get("approval_id") == approval_id and row.get("status") == "ok" and row.get("action") == "gmail.send_gmail_message" for row in audit_rows):
         raise SystemExit("execution audit row missing")
