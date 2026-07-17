@@ -3200,7 +3200,28 @@ def _execute_high_risk_action(profile: str, payload: dict[str, Any]) -> dict[str
 
 
 def _governance_execute_approved(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Execute a high-risk Google action after a one-time human approval."""
+    """Execute the original Google action after a one-time human approval.
+
+    The normal UI/Telegram path calls ``approve-and-execute`` and supplies the
+    sealed retry payload from the approval store. Some MCP clients instead call
+    this helper with only ``approval_id`` after the human has approved. In that
+    case, claim the approved row and replay the sealed original request here so
+    calendar/drive/docs/etc. approvals do not fall back to a fresh ACL check.
+    """
+    if payload.get("approval_id") and not payload.get("_sealed_retry_payload") and not payload.get("_approval_request_hash"):
+        current = _approval_claim_for_execution(str(payload.get("approval_id") or ""), payload, approve_if_pending=False)
+        approval_profile = str(current.get("profile") or profile or payload.get("profile") or "").strip()
+        if not approval_profile:
+            raise ValueError("approval profile unavailable")
+        retry_payload = _unseal_retry_payload(current.get("retry_payload_sealed"))
+        retry_payload.setdefault("request_id", str(payload.get("request_id") or uuid.uuid4()))
+        retry_payload.setdefault("profile", approval_profile)
+        retry_payload.setdefault("approval_id", str(payload.get("approval_id") or ""))
+        retry_payload.setdefault("_approval_request_hash", str(current.get("request_hash") or ""))
+        retry_payload["_sealed_retry_payload"] = True
+        retry_payload["_approval_execution_claimed"] = True
+        return _governance_execute_approved(approval_profile, retry_payload)
+
     started = time.monotonic()
     action = str(payload.get("action") or "")
     resource_alias = str(payload.get("resource_alias") or resource_for(profile, action, payload))

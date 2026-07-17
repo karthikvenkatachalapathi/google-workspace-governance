@@ -336,6 +336,41 @@ def main() -> None:
     if gateway._approval_state().get(approval_id5, {}).get("state") != "consumed":
         raise SystemExit(f"approved workspace tool was not consumed: {gateway._approval_state().get(approval_id5)}")
 
+    payload6 = dict(payload)
+    payload6.update({
+        "request_id": "approval-test-minimal-execute-approved-calendar",
+        "action": "calendar.get_events",
+        "resource_alias": "primary_calendar",
+        "_gateway_path": "/v1/tools/get_events",
+        "_tool": "get_events",
+        "calendar_id": "primary",
+        "max_results": "3",
+    })
+    blocked6 = gateway._governance_blocked("agent-a", dict(payload6))
+    approval_id6 = blocked6.get("approval_id")
+    if not approval_id6:
+        raise SystemExit(f"calendar get_events request did not create approval: {blocked6}")
+    gateway._approval_decide(
+        "agent-a",
+        {
+            "approval_admin_secret": "approval-test-secret",
+            "approval_id": approval_id6,
+            "decision": "approve_once",
+            "approver": "legacy_admin",
+            "ttl_seconds": 300,
+        },
+    )
+    fake_session6 = FakeSession()
+    setattr(gateway, "_session", lambda profile, route=None: fake_session6)
+    minimal_result6 = gateway._governance_execute_approved(
+        "agent-a",
+        {"approval_id": approval_id6, "action": "calendar.get_events", "resource_alias": "primary_calendar"},
+    )
+    if minimal_result6.get("status") != "executed" or len(fake_session6.calls) != 1 or fake_session6.calls[0][0] != "GET" or "/calendar/v3/calendars/primary/events" not in fake_session6.calls[0][1]:
+        raise SystemExit(f"minimal execute-approved did not replay stored calendar get_events call: {minimal_result6} {fake_session6.calls}")
+    if gateway._approval_state().get(approval_id6, {}).get("state") != "consumed":
+        raise SystemExit(f"minimal execute-approved calendar approval was not consumed: {gateway._approval_state().get(approval_id6)}")
+
     payload_concurrent = dict(payload)
     payload_concurrent.update({"request_id": "approval-test-concurrency", "to": "race@example.com", "subject": "Race", "body": "Race body"})
     blocked_concurrent = gateway._governance_blocked("agent-a", dict(payload_concurrent))
