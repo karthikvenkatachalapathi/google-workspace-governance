@@ -303,8 +303,6 @@ Each tool also supports an explicit `token_route` argument so the same profile c
 
 ### <span style="color:#72898f">Project Structure</span>
 
-The repository now mirrors the upstream [`google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) public layout style: a centered README entry point, explicit quick-start path, service/tool coverage near the top, security guidance, then a development/project-structure section that maps code by responsibility.
-
 | Path | Role |
 |---|---|
 | `scripts/governed_google_mcp.py` | MCP-facing governed Workspace tool server |
