@@ -4,6 +4,12 @@ A self-hosted governance gateway for Google Workspace access by AI agents, MCP c
 
 Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an admin-only browser control plane for setup and day-to-day administration.
 
+## Hosted demo
+
+Walk through a demo at [governance-gateway-demo.pages.dev](https://governance-gateway-demo.pages.dev/). The demo is a product walkthrough with mock data only; it does not connect to Google, send requests to a live gateway, or expose real credentials.
+
+![Google Agent Gateway login screen](docs/assets/demo-login-screen.jpg)
+
 ## Feature set
 
 ### Governed Google Workspace access
@@ -47,12 +53,6 @@ This project is different:
 The goal is not just “Google tools over MCP.” The goal is a governed Google access layer that can safely sit between multiple agents and multiple Google accounts.
 
 ## Core concepts
-
-## Hosted demo
-
-Walk through a demo at [governance-gateway-demo.pages.dev](https://governance-gateway-demo.pages.dev/). The demo is a product walkthrough with mock data only; it does not connect to Google, send requests to a live gateway, or expose real credentials.
-
-![Google Agent Gateway login screen](docs/assets/demo-login-screen.jpg)
 
 ### Profile
 
