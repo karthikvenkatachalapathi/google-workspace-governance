@@ -4,37 +4,6 @@ A self-hosted governance gateway for Google Workspace access by AI agents, MCP c
 
 Instead of giving every agent a broad Google OAuth refresh token, agents call this gateway. The gateway owns Google account custody, enforces profile/action/resource policy, supports multiple account routes per agent profile, records audit logs, and exposes an admin-only browser control plane for setup and day-to-day administration.
 
-## UI screenshots and demo
-
-A sanitized, no-credentials demo is included under [`docs/demo/`](docs/demo/). The demo uses mock data only. It does not connect to Google, store tokens, or call live APIs.
-
-Cloudflare Pages is the recommended public demo host:
-
-| Cloudflare Pages setting | Value |
-|---|---|
-| Framework preset | None / Static HTML |
-| Build command | leave blank |
-| Build output directory | `docs` |
-| Root route | redirects to `/demo/` |
-
-One-off deploy with Wrangler:
-
-```bash
-npx wrangler pages deploy docs --project-name google-workspace-governance-demo
-```
-
-| ACL governance | Workspace setup |
-|---|---|
-| ![ACL rules UI showing allow, ask, and deny policy rows](docs/assets/ui/acl-rules.png) | ![Workspace configuration UI showing account routes](docs/assets/ui/workspace-configuration.png) |
-
-| Approvals | Runtime backups |
-|---|---|
-| ![Approvals UI showing pending and denied governance requests](docs/assets/ui/approvals.png) | ![Runtime backups UI showing physical archive paths and extracted folders](docs/assets/ui/runtime-backups.png) |
-
-| Access logs |
-|---|
-| ![Access logs UI showing allowed, denied, approval, and control UI events](docs/assets/ui/access-logs.png) |
-
 ## Feature set
 
 ### Governed Google Workspace access
