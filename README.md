@@ -305,20 +305,20 @@ Each tool also supports an explicit `token_route` argument so the same profile c
 
 The repository now mirrors the upstream [`google_workspace_mcp`](https://github.com/taylorwilsdon/google_workspace_mcp) public layout style: a centered README entry point, explicit quick-start path, service/tool coverage near the top, security guidance, then a development/project-structure section that maps code by responsibility.
 
-| Path | Role in this gateway | Upstream-style counterpart |
-|---|---|---|
-| `scripts/governed_google_mcp.py` | MCP-facing governed Workspace tool server | `fastmcp_server.py`, `main.py`, service tool registration |
-| `scripts/unified_google_gateway.py` | Private gateway API, Google API adapters, ACL enforcement, approvals, audit/metrics | `core/server.py` plus Workspace service tool modules |
-| `scripts/google_workspace_action_catalog.py` | Workspace action/service catalog for policy/UI surfaces | `core/tool_tiers.yaml`, service tool metadata |
-| `scripts/governance_policy.py` | Runtime policy classifier and resource resolver | auth/permission boundary modules |
-| `scripts/google_governance_control_plane.py` | Browser control UI and control APIs | operational/admin layer added by this project |
-| `scripts/google_governance_approval_cli.py` | Approval helper CLI for operators | CLI/operator helpers |
-| `scripts/install_systemd.sh`, `scripts/verify_systemd.sh` | Native Linux/systemd install and verification | deployment helpers |
-| `scripts/test_*.py` | Offline regression tests | `tests/` style validation, kept script-local for the single-file runtime shape |
-| `ARCHITECTURE.md`, `SECURITY.md`, `SETUP.md` | Deep-dive docs split out from the README | upstream-style dedicated setup/security/development docs |
-| `generated/ui/control-plane/` | Control-plane logos/icons and UI deployment assets | static branding/assets |
-| `grafana/google-workspace-governance-ops-dashboard.json` | Importable operations dashboard | operational deployment artifacts |
-| `.google-governance/`, `database/` | Ignored local runtime state created by install/UI | local credential/runtime stores; never committed |
+| Path | Role |
+|---|---|
+| `scripts/governed_google_mcp.py` | MCP-facing governed Workspace tool server |
+| `scripts/unified_google_gateway.py` | Private gateway API, Google API adapters, ACL enforcement, approvals, audit/metrics |
+| `scripts/google_workspace_action_catalog.py` | Workspace action/service catalog for policy/UI surfaces |
+| `scripts/governance_policy.py` | Runtime policy classifier and resource resolver |
+| `scripts/google_governance_control_plane.py` | Browser control UI and control APIs |
+| `scripts/google_governance_approval_cli.py` | Approval helper CLI for operators |
+| `scripts/install_systemd.sh`, `scripts/verify_systemd.sh` | Native Linux/systemd install and verification |
+| `scripts/test_*.py` | Offline regression tests, kept script-local for the single-file runtime shape |
+| `ARCHITECTURE.md`, `SECURITY.md`, `SETUP.md` | Deep-dive docs split out from the README |
+| `generated/ui/control-plane/` | Control-plane logos/icons and UI deployment assets |
+| `grafana/google-workspace-governance-ops-dashboard.json` | Importable operations dashboard |
+| `.google-governance/`, `database/` | Ignored local runtime state created by install/UI; never committed |
 
 ---
 
