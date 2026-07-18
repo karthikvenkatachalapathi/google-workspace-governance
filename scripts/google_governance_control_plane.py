@@ -6945,6 +6945,69 @@ body.light.authing #loginView .loginBrand > img.themeLogo.lightLogo.loginHeroLog
 body.light.authing #loginView .loginBrand > img.themeLogo.darkLogo.loginHeroLogo{display:none!important}
 body:not(.light).authing #loginView .loginBrand > img.themeLogo.darkLogo.loginHeroLogo{display:block!important}
 body:not(.light).authing #loginView .loginBrand > img.themeLogo.lightLogo.loginHeroLogo{display:none!important}
+
+/* 2026-07 collapsed-rail-top-left-menu-v33: when the rail is collapsed, the logo slot becomes the nav icon only. */
+@media (min-width:1025px){
+  body.mainNavCollapsed header .wrap.top{
+    grid-template-columns:var(--leftPaneCollapsedW) minmax(0,1fr) auto!important;
+  }
+  body.mainNavCollapsed .brandCluster{
+    width:var(--leftPaneCollapsedW)!important;
+    min-width:var(--leftPaneCollapsedW)!important;
+    max-width:var(--leftPaneCollapsedW)!important;
+    height:var(--topBarH)!important;
+    padding:0!important;
+    display:grid!important;
+    place-items:center!important;
+    background:var(--sideBg)!important;
+    overflow:hidden!important;
+  }
+  body.mainNavCollapsed .brandCluster .brand,
+  body.mainNavCollapsed .brandCluster .textBrandLink,
+  body.mainNavCollapsed .brandCluster .googleTextBrand,
+  body.mainNavCollapsed .brandCluster img{
+    display:none!important;
+    visibility:hidden!important;
+    pointer-events:none!important;
+  }
+  body.mainNavCollapsed .topWorkspace{
+    grid-template-columns:minmax(0,1fr)!important;
+    padding-left:0!important;
+    column-gap:0!important;
+  }
+  body.mainNavCollapsed #mainNavCollapse.topMenuCollapse{
+    position:fixed!important;
+    left:0!important;
+    top:0!important;
+    z-index:1400!important;
+    width:var(--leftPaneCollapsedW)!important;
+    min-width:var(--leftPaneCollapsedW)!important;
+    max-width:var(--leftPaneCollapsedW)!important;
+    height:var(--topBarH)!important;
+    min-height:var(--topBarH)!important;
+    margin:0!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:var(--sideBg)!important;
+    color:var(--sideText)!important;
+    display:grid!important;
+    place-items:center!important;
+  }
+  body.mainNavCollapsed #mainNavCollapse.topMenuCollapse:hover,
+  body.mainNavCollapsed #mainNavCollapse.topMenuCollapse:focus-visible{
+    background:var(--sideHover)!important;
+    outline:2px solid var(--accent)!important;
+    outline-offset:-4px!important;
+  }
+  body.mainNavCollapsed #mainNavCollapse.topMenuCollapse::before{
+    width:22px!important;
+    height:2px!important;
+    transform:translate(-50%,-7px)!important;
+    background:var(--sideText)!important;
+    box-shadow:0 7px 0 var(--sideText),0 14px 0 var(--sideText)!important;
+  }
+}
 </style></head><body class="authing"><header><div class="wrap top"><div class="brandCluster"><a class="brand textBrandLink" href="#" id="brandHome" aria-label="Go to ACL rules"><img class="themeLogo lightLogo brandLogo" src="/assets/logo-light.png?v=29" alt="Google Agent Gateway"/><img class="themeLogo darkLogo brandLogo" src="/assets/logo-dark.png?v=29" alt="Google Agent Gateway"/><span class="googleTextBrand" aria-label="Google Agent Gateway"><span class="brandWord brandGoogle">Google</span><span class="brandWord brandAgent">Agent</span><span class="brandWord brandGateway">Gateway</span></span></a></div><div class="topWorkspace"><button id="mainNavCollapse" class="mainNavControl topMenuCollapse" title="Collapse or expand main navigation" aria-label="Collapse or expand main navigation"><span class="railDots" aria-hidden="true"><span></span><span></span><span></span></span></button><span id="welcomeName" class="welcomeName">Welcome</span></div><div class="actions topUtilities"><div class="quickstartWrap"><button id="quickstartBtn" class="topUtilityButton quickstartBtn" title="Quickstart guide" aria-label="Quickstart guide"><span class="quickstartIcon" aria-hidden="true">🚀</span><span class="quickstartLabel">Quickstart</span></button><div id="quickstartPanel" class="quickstartPanel hidden" role="dialog" aria-modal="true" aria-labelledby="quickstartTitle"><div class="quickstartPanelHead"><div><b id="quickstartTitle">Quickstart</b><span>Get the gateway ready in three steps.</span></div><button id="quickstartClose" type="button" aria-label="Close quickstart">✕</button></div><ol><li><b>MCP Authorization</b><span>Configure the MCP gateway token.</span></li><li><b>Workspace Configuration</b><span>Authorize and link your Google Workspace to your agents.</span></li><li><b>Channel Configuration</b><span>Configure notification channels for agent access approvals.</span></li></ol></div></div><div class="notificationWrap"><button id="activityBell" class="topUtilityButton activityBell" title="Recent governance activity" aria-label="Recent governance activity"><span class="bellIcon" aria-hidden="true">🔔</span><span id="activityBadge" class="navBadge hidden">0</span></button><div id="activityPanel" class="activityPanel hidden"><div class="activityPanelHead"><b>Recent activity</b><button id="clearActivity" type="button">Clear all</button></div><div id="activityList" class="activityList muted">No recent activity.</div></div></div><button id="theme" class="topUtilityButton themeTopControl" title="Toggle light or dark theme" aria-label="Toggle light or dark theme"><span class="themeTopIcon" aria-hidden="true"></span></button><div id="userMenu" class="topUserMenu hidden"><button type="button" class="topAvatarButton" aria-label="Open user menu" aria-haspopup="menu"><img id="userMenuAvatar" class="avatarMini hidden" alt=""/><span class="topAvatarFallback" aria-hidden="true"></span><span id="userMenuName" class="srOnly">User</span></button><div class="topUserDropdown" role="menu"><button id="tab-userSettings" class="topUserMenuItem hidden" role="menuitem"><span class="topSettingsIcon" aria-hidden="true"></span><span>Settings</span></button><button id="logout" class="topUserMenuItem" role="menuitem"><span class="topLogoutIcon" aria-hidden="true"></span><span>Logout</span></button></div></div></div></div></header><main>
 <section id="setupView" class="authShell hidden"><div class="authCard"><div class="authLogo"><div><h2 class="authTitle">Create the first admin</h2><p class="authLead">Initialize the protected Google Agent Gateway control plane.</p></div></div><div class="authGrid"><input id="setupToken" placeholder="Setup token" type="password"/><input id="setupUser" placeholder="Login username" autocomplete="username"/><input id="setupFirst" placeholder="First name"/><input id="setupLast" placeholder="Last name"/><input id="setupPass" placeholder="Admin password (12+ chars)" type="password" autocomplete="new-password"/><button id="setupBtn" class="primary">Create admin</button></div><div class="authMeta"><span>PBKDF2 password hash</span><span>Session-protected UI</span><span>Gateway-owned OAuth</span></div><div id="setupMsg" class="msg"></div></div></section>
 <section id="loginView" class="loginSplit"><div class="loginPanel"><div class="authCard"><div class="loginBrand"><span class="loginHeroLogo" aria-hidden="true" style="display:none"></span><img class="themeLogo lightLogo loginHeroLogo" src="/assets/logo-light.png?v=29" alt="Google Agent Gateway"/><img class="themeLogo darkLogo loginHeroLogo" src="/assets/logo-login-dark.png?v=29" alt="Google Agent Gateway"/></div><h2 class="authTitle">Sign in</h2><div class="authGrid"><input id="loginUser" placeholder="Username" autocomplete="username"/><input id="loginPass" placeholder="Password" type="password" autocomplete="current-password"/><button id="loginBtn">Sign in</button><button id="passkeyLoginBtn" type="button">Sign in with passkey</button><div id="twofaBox" class="twofaBox hidden"><div class="muted smallNote">Two-factor authentication required.</div><input id="loginTotp" placeholder="Authenticator code" inputmode="numeric" autocomplete="one-time-code"/><div class="toolbar"><button id="loginTotpBtn" class="primary" type="button">Verify code</button><button id="loginYubiBtn" type="button">Use YubiKey 2FA</button></div></div><button id="oidcLoginBtn" class="ssoLogin hidden" type="button">Sign in with SSO</button><button id="loginTheme" class="loginThemeControl" type="button" title="Toggle light or dark theme" aria-label="Toggle light or dark theme"><span class="themeTopIcon" aria-hidden="true"></span></button></div><div id="loginMsg" class="msg"></div></div></div></section>

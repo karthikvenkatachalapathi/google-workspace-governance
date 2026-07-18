@@ -380,6 +380,30 @@ def assert_gateway_upstream_payload_adapters() -> None:
     if sheet_clear["method"] != "POST" or not str(sheet_clear["url"]).endswith("/values/Sheet1%21A1:clear"):
         raise SystemExit(f"modify_sheet_values clear_values did not route to clear: {sheet_clear}")
 
+    spreadsheet_create = gateway._workspace_tool_execute("agent-a", "create_spreadsheet", {"title": "Report", "sheet_names": ["Executive Summary", "API Tests"]})
+    create_body = spreadsheet_create.get("json_body") or {}
+    created_sheet_titles = [sheet.get("properties", {}).get("title") for sheet in create_body.get("sheets", [])]
+    if spreadsheet_create["method"] != "POST" or create_body.get("properties", {}).get("title") != "Report" or created_sheet_titles != ["Executive Summary", "API Tests"]:
+        raise SystemExit(f"create_spreadsheet ignored requested sheet_names: {spreadsheet_create}")
+
+    sheet_create = gateway._workspace_tool_execute("agent-a", "create_sheet", {"spreadsheet_id": "sheet-1", "sheet_name": "UI Tests", "insert_sheet_index": 2})
+    create_requests = (sheet_create.get("json_body") or {}).get("requests") or []
+    add_sheet = (create_requests[0] if create_requests else {}).get("addSheet") or {}
+    if sheet_create["method"] != "POST" or not str(sheet_create["url"]).endswith("/spreadsheets/sheet-1:batchUpdate") or add_sheet.get("properties", {}).get("title") != "UI Tests" or add_sheet.get("properties", {}).get("index") != 2:
+        raise SystemExit(f"create_sheet did not build a Sheets batchUpdate addSheet request: {sheet_create}")
+
+    imported_sheet = gateway._workspace_tool_execute("agent-a", "import_to_google_sheets", {"file_name": "Evidence.xlsx", "folder_id": "root"})
+    import_body = imported_sheet.get("json_body") or {}
+    if imported_sheet["method"] != "POST" or import_body.get("name") != "Evidence.xlsx" or import_body.get("mimeType") != "application/vnd.google-apps.spreadsheet" or import_body.get("parents") != ["root"]:
+        raise SystemExit(f"import_to_google_sheets did not adapt file_name/folder_id to Drive create metadata: {imported_sheet}")
+
+    formatted_sheet = gateway._workspace_tool_execute("agent-a", "format_sheet_range", {"spreadsheet_id": "sheet-1", "range_name": "Sheet1!A1:L1", "background_color": "#1f2937", "text_color": "#ffffff", "bold": True, "horizontal_alignment": "CENTER", "wrap_strategy": "WRAP"})
+    format_requests = (formatted_sheet.get("json_body") or {}).get("requests") or []
+    repeat_cell = (format_requests[0] if format_requests else {}).get("repeatCell") or {}
+    user_format = repeat_cell.get("cell", {}).get("userEnteredFormat", {})
+    if formatted_sheet["method"] != "POST" or not str(formatted_sheet["url"]).endswith("/spreadsheets/sheet-1:batchUpdate") or not repeat_cell.get("range") or user_format.get("horizontalAlignment") != "CENTER" or user_format.get("textFormat", {}).get("bold") is not True:
+        raise SystemExit(f"format_sheet_range did not build a non-empty repeatCell batchUpdate request: {formatted_sheet}")
+
     drive_revoke = gateway._workspace_tool_execute("agent-a", "manage_drive_access", {"file_id": "file-1", "action": "revoke", "permission_id": "perm-1"})
     if drive_revoke["method"] != "DELETE" or not str(drive_revoke["url"]).endswith("/permissions/perm-1"):
         raise SystemExit(f"manage_drive_access action=revoke did not route to permission DELETE: {drive_revoke}")

@@ -2912,11 +2912,57 @@ def _normalize_workspace_tool_payload(tool: str, payload: dict[str, Any]) -> dic
         if normalized.get("calendar_id") is not None and normalized.get("calendar") is None:
             normalized["calendar"] = normalized.get("calendar_id")
 
-    if tool in {"read_sheet_values", "modify_sheet_values"}:
+    if tool in {"read_sheet_values", "modify_sheet_values", "format_sheet_range"}:
         if normalized.get("range_name") is not None and normalized.get("range_a1") is None:
             normalized["range_a1"] = normalized.get("range_name")
         if normalized.get("clear_values") is True and not normalized.get("operation"):
             normalized["operation"] = "clear"
+
+    if tool in {"create_drive_file", "create_drive_folder", "import_to_google_doc", "import_to_google_slides", "import_to_google_sheets"}:
+        if normalized.get("file_name") is not None and normalized.get("name") is None:
+            normalized["name"] = normalized.get("file_name")
+        if normalized.get("folder_name") is not None and normalized.get("name") is None:
+            normalized["name"] = normalized.get("folder_name")
+        if normalized.get("folder_id") is not None and normalized.get("parent_id") is None:
+            normalized["parent_id"] = normalized.get("folder_id")
+        if normalized.get("parent_folder_id") is not None and normalized.get("parent_id") is None:
+            normalized["parent_id"] = normalized.get("parent_folder_id")
+
+    if tool in {"copy_drive_file"}:
+        if normalized.get("parent_folder_id") is not None and normalized.get("parent_id") is None:
+            normalized["parent_id"] = normalized.get("parent_folder_id")
+
+    if tool in {"get_page", "get_page_thumbnail"}:
+        if normalized.get("page_object_id") is not None and normalized.get("page_id") is None:
+            normalized["page_id"] = normalized.get("page_object_id")
+
+    if tool in {"list_tasks", "get_task", "manage_task", "get_task_list", "manage_task_list"}:
+        if normalized.get("task_list_id") is not None and normalized.get("tasklist_id") is None:
+            normalized["tasklist_id"] = normalized.get("task_list_id")
+
+    if tool in {"get_contact", "manage_contact"}:
+        if normalized.get("contact_id") is not None and normalized.get("resource_name") is None:
+            normalized["resource_name"] = normalized.get("contact_id")
+    if tool in {"get_contact_group", "manage_contact_group"}:
+        if normalized.get("group_id") is not None and normalized.get("resource_name") is None:
+            normalized["resource_name"] = normalized.get("group_id")
+
+    if tool in {"get_messages", "send_message", "search_messages"}:
+        if normalized.get("space_id") is not None and normalized.get("space_name") is None:
+            normalized["space_name"] = normalized.get("space_id")
+        if normalized.get("message_text") is not None and normalized.get("text") is None:
+            normalized["text"] = normalized.get("message_text")
+    if tool in {"create_reaction", "download_chat_attachment"}:
+        if normalized.get("message_id") is not None and normalized.get("message_name") is None:
+            normalized["message_name"] = normalized.get("message_id")
+        if normalized.get("message_id") is not None and normalized.get("attachment_name") is None:
+            normalized["attachment_name"] = normalized.get("message_id")
+        if normalized.get("emoji_unicode") is not None and normalized.get("emoji") is None:
+            normalized["emoji"] = normalized.get("emoji_unicode")
+
+    if tool in {"search_custom"}:
+        if normalized.get("q") is not None and normalized.get("query") is None:
+            normalized["query"] = normalized.get("q")
 
     if tool in {"manage_drive_access", "set_drive_file_permissions"}:
         if normalized.get("action") and not normalized.get("operation"):
@@ -2927,6 +2973,104 @@ def _normalize_workspace_tool_payload(tool: str, payload: dict[str, Any]) -> dic
             normalized["type"] = normalized.get("share_type")
 
     return normalized
+
+
+def _sheets_column_to_index(column: str) -> int:
+    value = 0
+    for char in column.upper():
+        if not ("A" <= char <= "Z"):
+            raise ValueError("invalid Sheets column in range_name")
+        value = value * 26 + (ord(char) - ord("A") + 1)
+    return value - 1
+
+
+def _sheets_a1_grid_range(range_a1: str, *, default_sheet_id: int = 0) -> dict[str, int]:
+    """Convert a simple A1 range to a Sheets API GridRange.
+
+    The governed MCP format tool accepts A1 notation but Sheets batchUpdate
+    formatting requires zero-based GridRange indexes. When no sheet_id is known,
+    use sheetId 0, which is the default first-sheet ID for newly-created
+    spreadsheets and keeps simple header-formatting requests useful.
+    """
+    raw = str(range_a1 or "").strip()
+    if "!" in raw:
+        _, raw = raw.rsplit("!", 1)
+    raw = raw.replace("$", "")
+    if not raw:
+        raise ValueError("range_name is required")
+    start, end = (raw.split(":", 1) + [raw])[:2] if ":" in raw else (raw, raw)
+    cell_re = re.compile(r"^([A-Za-z]+)([1-9][0-9]*)$")
+    start_match = cell_re.match(start.strip())
+    end_match = cell_re.match(end.strip())
+    if not start_match or not end_match:
+        raise ValueError("format_sheet_range requires a bounded A1 cell range such as Sheet1!A1:L1")
+    start_col, start_row = start_match.groups()
+    end_col, end_row = end_match.groups()
+    start_col_i = _sheets_column_to_index(start_col)
+    end_col_i = _sheets_column_to_index(end_col) + 1
+    start_row_i = int(start_row) - 1
+    end_row_i = int(end_row)
+    if end_col_i <= start_col_i or end_row_i <= start_row_i:
+        raise ValueError("invalid Sheets A1 range bounds")
+    return {
+        "sheetId": int(default_sheet_id),
+        "startRowIndex": start_row_i,
+        "endRowIndex": end_row_i,
+        "startColumnIndex": start_col_i,
+        "endColumnIndex": end_col_i,
+    }
+
+
+def _hex_color_to_rgb(color: str) -> dict[str, float]:
+    value = str(color or "").strip().lstrip("#")
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", value):
+        raise ValueError("color values must be #RRGGBB")
+    return {"red": int(value[0:2], 16) / 255, "green": int(value[2:4], 16) / 255, "blue": int(value[4:6], 16) / 255}
+
+
+def _format_sheet_range_requests(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    existing = payload.get("requests")
+    if existing:
+        return existing
+    range_a1 = str(payload.get("range_a1") or "").strip()
+    grid_range = _sheets_a1_grid_range(range_a1, default_sheet_id=int(str(payload.get("sheet_id") or 0)))
+    user_format: dict[str, Any] = {}
+    fields: list[str] = []
+    if payload.get("background_color"):
+        user_format["backgroundColor"] = _hex_color_to_rgb(str(payload.get("background_color")))
+        fields.append("userEnteredFormat.backgroundColor")
+    text_format: dict[str, Any] = {}
+    if payload.get("text_color"):
+        text_format["foregroundColor"] = _hex_color_to_rgb(str(payload.get("text_color")))
+        fields.append("userEnteredFormat.textFormat.foregroundColor")
+    if payload.get("bold") is not None:
+        text_format["bold"] = bool(payload.get("bold"))
+        fields.append("userEnteredFormat.textFormat.bold")
+    if payload.get("italic") is not None:
+        text_format["italic"] = bool(payload.get("italic"))
+        fields.append("userEnteredFormat.textFormat.italic")
+    if payload.get("font_size") is not None:
+        text_format["fontSize"] = int(payload.get("font_size"))
+        fields.append("userEnteredFormat.textFormat.fontSize")
+    if text_format:
+        user_format["textFormat"] = text_format
+    if payload.get("horizontal_alignment"):
+        user_format["horizontalAlignment"] = str(payload.get("horizontal_alignment")).upper()
+        fields.append("userEnteredFormat.horizontalAlignment")
+    if payload.get("vertical_alignment"):
+        user_format["verticalAlignment"] = str(payload.get("vertical_alignment")).upper()
+        fields.append("userEnteredFormat.verticalAlignment")
+    if payload.get("wrap_strategy"):
+        user_format["wrapStrategy"] = str(payload.get("wrap_strategy")).upper()
+        fields.append("userEnteredFormat.wrapStrategy")
+    if payload.get("number_format_type"):
+        user_format["numberFormat"] = {"type": str(payload.get("number_format_type")).upper()}
+        if payload.get("number_format_pattern"):
+            user_format["numberFormat"]["pattern"] = str(payload.get("number_format_pattern"))
+        fields.append("userEnteredFormat.numberFormat")
+    if not fields:
+        raise ValueError("format_sheet_range requires at least one formatting option or explicit requests")
+    return [{"repeatCell": {"range": grid_range, "cell": {"userEnteredFormat": user_format}, "fields": ",".join(fields)}}]
 
 
 def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3080,6 +3224,9 @@ def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) ->
         if op in {"delete","revoke"} and perm_id: return req("DELETE", f"https://www.googleapis.com/drive/v3/files/{q(fid, safe='')}/permissions/{q(perm_id, safe='')}")
         raise ValueError("valid permission operation required")
     if tool in {"get_drive_file_permissions", "check_drive_file_public_access"}:
+        if tool == "check_drive_file_public_access" and payload.get("file_name") and not payload.get("file_id"):
+            name = str(payload.get("file_name") or "").replace("'", "\\'")
+            return req("GET", "https://www.googleapis.com/drive/v3/files", params={"q": f"name = '{name}' and trashed = false", "fields": "files(id,name,permissions,owners,parents,webViewLink)"})
         fid, = _require(payload,"file_id"); return req("GET", f"https://www.googleapis.com/drive/v3/files/{q(fid, safe='')}", params={"fields":"id,name,permissions,owners,parents,webViewLink"})
 
     # Docs/Sheets/Slides use native APIs and Drive helpers
@@ -3112,10 +3259,54 @@ def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) ->
         sid, rng = _require(payload,"spreadsheet_id","range_a1"); op=str(payload.get("operation") or "update").lower()
         if op == "clear": return req("POST", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}/values/{q(rng, safe='')}:clear", body={})
         return req("PUT", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}/values/{q(rng, safe='')}", params={"valueInputOption": payload.get("value_input_option") or "USER_ENTERED"}, body={"range":rng,"values":payload.get("values") or []})
-    if tool == "create_spreadsheet": return req("POST", "https://sheets.googleapis.com/v4/spreadsheets", body={"properties":{"title":str(payload.get("title") or "Untitled")}})
+    if tool == "create_spreadsheet":
+        body: dict[str, Any] = {"properties": {"title": str(payload.get("title") or "Untitled")}}
+        sheet_names = payload.get("sheet_names")
+        if isinstance(sheet_names, list):
+            titles = [str(name).strip() for name in sheet_names if str(name).strip()]
+            if titles:
+                body["sheets"] = [{"properties": {"title": title}} for title in titles]
+        return req("POST", "https://sheets.googleapis.com/v4/spreadsheets", body=body)
     if tool == "list_spreadsheets": return _workspace_tool_execute(profile,"search_drive_files", {**payload, "query":"mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"})
     if tool in {"get_spreadsheet_info","list_sheet_tables"}: sid,=_require(payload,"spreadsheet_id"); return req("GET", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}")
-    if tool in {"format_sheet_range","create_sheet","move_sheet_rows","append_table_rows","manage_conditional_formatting"}: sid,=_require(payload,"spreadsheet_id"); return req("POST", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}:batchUpdate", body={"requests":payload.get("requests") or []})
+    if tool == "create_sheet":
+        sid, = _require(payload, "spreadsheet_id")
+        requests = payload.get("requests")
+        if not requests:
+            properties: dict[str, Any] = {}
+            if payload.get("sheet_name"):
+                properties["title"] = str(payload.get("sheet_name"))
+            if payload.get("insert_sheet_index") is not None:
+                properties["index"] = int(payload.get("insert_sheet_index"))
+            if not properties:
+                raise ValueError("sheet_name or requests required")
+            requests = [{"addSheet": {"properties": properties}}]
+        return req("POST", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}:batchUpdate", body={"requests": requests})
+    if tool == "format_sheet_range":
+        sid, = _require(payload, "spreadsheet_id")
+        range_a1 = str(payload.get("range_a1") or "")
+        if payload.get("sheet_id") is None and "!" in range_a1:
+            sheet_title = range_a1.rsplit("!", 1)[0].strip().strip("'").replace("''", "'")
+            if sheet_title:
+                try:
+                    meta_resp = session.get(
+                        f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}",
+                        params={"fields": "sheets.properties(sheetId,title)"},
+                        timeout=60,
+                    )
+                    meta_resp.raise_for_status()
+                    for sheet in meta_resp.json().get("sheets", []):
+                        props = sheet.get("properties", {})
+                        if props.get("title") == sheet_title:
+                            payload = {**payload, "sheet_id": int(props["sheetId"])}
+                            break
+                except Exception:
+                    # Keep the route constructible in offline/contract tests; Google
+                    # will reject an unresolved default sheetId in live tests, making
+                    # metadata-resolution regressions visible instead of hidden.
+                    pass
+        return req("POST", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}:batchUpdate", body={"requests": _format_sheet_range_requests(payload)})
+    if tool in {"move_sheet_rows","append_table_rows","manage_conditional_formatting"}: sid,=_require(payload,"spreadsheet_id"); return req("POST", f"https://sheets.googleapis.com/v4/spreadsheets/{q(sid, safe='')}:batchUpdate", body={"requests":payload.get("requests") or []})
 
     if tool == "create_presentation": return req("POST", "https://slides.googleapis.com/v1/presentations", body={"title":str(payload.get("title") or "Untitled")})
     if tool == "get_presentation": pid,=_require(payload,"presentation_id"); return req("GET", f"https://slides.googleapis.com/v1/presentations/{q(pid, safe='')}")

@@ -2,7 +2,11 @@
 
 These screenshots are generated from the inert static demo. They use the real control-plane UI shell and navigation with mock data only.
 
-[Open the live demo](https://governance-gateway-demo.pages.dev/) · [Back to README](../README.md)
+<p align="center">
+  <a href="https://governance-gateway-demo.pages.dev/" target="_blank" rel="noopener noreferrer">Open the live demo</a>
+  &nbsp;·&nbsp;
+  <a href="../README.md" target="_blank" rel="noopener noreferrer">Back to README</a>
+</p>
 
 ## Login
 

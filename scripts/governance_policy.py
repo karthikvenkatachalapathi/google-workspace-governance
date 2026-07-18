@@ -164,6 +164,18 @@ def classify(profile: str, action: str, resource_alias: str | None = None, workf
                     f"gmail_{alias}", f"calendar_{alias}_primary", f"sheets_{alias}_workspace",
                     f"docs_{alias}_workspace", f"drive_{alias}_workspace", f"slides_{alias}_workspace", f"contacts_{alias}",
                 })
+        unknown_resource_decision = str(policy.get("unknown_resource_default") or "ask")
+        if resource and resource != "unknown" and resource not in known_resources and (known_resources or unknown_resource_decision != "ask"):
+            return {
+                "decision": unknown_resource_decision,
+                "decision_source": "unknown_resource_default",
+                "mode": policy.get("mode", "observe_only"),
+                "profile": profile,
+                "resource_alias": resource,
+                "action": action,
+                "workflow_intent": workflow_intent or "",
+                "policy_schema_version": policy.get("schema_version"),
+            }
         resource_decisions = ((profile_spec.get("resource_overrides") or {}).get(resource) or {})
         for candidate in action_candidates:
             if candidate in resource_decisions:
@@ -190,18 +202,6 @@ def classify(profile: str, action: str, resource_alias: str | None = None, workf
                     "workflow_intent": workflow_intent or "",
                     "policy_schema_version": policy.get("schema_version"),
                 }
-        unknown_resource_decision = str(policy.get("unknown_resource_default") or "ask")
-        if resource and resource != "unknown" and resource not in known_resources and (known_resources or unknown_resource_decision != "ask"):
-            return {
-                "decision": unknown_resource_decision,
-                "decision_source": "unknown_resource_default",
-                "mode": policy.get("mode", "observe_only"),
-                "profile": profile,
-                "resource_alias": resource,
-                "action": action,
-                "workflow_intent": workflow_intent or "",
-                "policy_schema_version": policy.get("schema_version"),
-            }
     else:
         return {
             "decision": str(policy.get("unknown_profile_default") or "ask"),
