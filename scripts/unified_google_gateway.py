@@ -2428,7 +2428,7 @@ def _route_policy_context(path: str, profile: str, payload: dict[str, Any]) -> t
         "/v1/calendar/update": "calendar.manage_event",
         "/v1/calendar/freebusy": "calendar.query_freebusy",
         "/v1/gmail/get": "gmail.get_gmail_message_content",
-        "/v1/gmail/attachment": "gmail.get_gmail_message_content",
+        "/v1/gmail/attachment": "gmail.get_gmail_attachment",
         "/v1/gmail/modify": "gmail.modify_gmail_message_labels",
         "/v1/drive/search": "drive.search_drive_files",
         "/v1/drive/get": "drive.get_drive_file_content",
@@ -3073,6 +3073,74 @@ def _format_sheet_range_requests(payload: dict[str, Any]) -> list[dict[str, Any]
     return [{"repeatCell": {"range": grid_range, "cell": {"userEnteredFormat": user_format}, "fields": ",".join(fields)}}]
 
 
+def _collect_gmail_attachment_parts(message: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return attachment metadata from a Gmail message payload."""
+    attachments: list[dict[str, Any]] = []
+
+    def visit(part: dict[str, Any], path: str = "") -> None:
+        raw_body = part.get("body")
+        body: dict[str, Any] = raw_body if isinstance(raw_body, dict) else {}
+        attachment_id = str(body.get("attachmentId") or "")
+        if attachment_id:
+            attachments.append({
+                "attachment_id": attachment_id,
+                "filename": str(part.get("filename") or ""),
+                "mime_type": str(part.get("mimeType") or "application/octet-stream"),
+                "size": int(body.get("size") or 0),
+                "part_id": str(part.get("partId") or path),
+            })
+        raw_children = part.get("parts")
+        children = raw_children if isinstance(raw_children, list) else []
+        for idx, child in enumerate(children):
+            if isinstance(child, dict):
+                child_path = f"{path}.{idx}" if path else str(idx)
+                visit(child, child_path)
+
+    raw_payload = message.get("payload")
+    payload: dict[str, Any] = raw_payload if isinstance(raw_payload, dict) else {}
+    visit(payload)
+    return attachments
+
+
+def _base64url_decode(data: str) -> bytes:
+    raw = str(data or "")
+    return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+
+
+def _safe_attachment_filename(filename: str, fallback: str) -> str:
+    value = Path(str(filename or "")).name.strip()
+    value = re.sub(r"[^A-Za-z0-9._ -]+", "_", value).strip(" .")
+    return value or fallback
+
+
+def _gmail_attachment_download_base() -> Path:
+    return Path(os.getenv("GOOGLE_GOVERNANCE_ATTACHMENT_DOWNLOAD_DIR", "/tmp/google-governance-gmail-attachments")).expanduser().resolve()
+
+
+def _gmail_attachment_default_path(message_id: str, attachment_id: str, filename: str) -> Path:
+    safe_message = re.sub(r"[^A-Za-z0-9._-]+", "_", message_id).strip("._-") or "message"
+    safe_attachment = re.sub(r"[^A-Za-z0-9._-]+", "_", attachment_id).strip("._-") or "attachment"
+    safe_name = _safe_attachment_filename(filename, safe_attachment)
+    return _gmail_attachment_download_base() / safe_message / safe_name
+
+
+def _gmail_attachment_output_path(output_path: str, message_id: str, attachment_id: str, filename: str) -> Path:
+    base = _gmail_attachment_download_base()
+    if not output_path.strip():
+        return _gmail_attachment_default_path(message_id, attachment_id, filename)
+    requested = Path(output_path).expanduser()
+    if not requested.is_absolute():
+        requested = base / requested
+    resolved = requested.resolve()
+    try:
+        resolved.relative_to(base)
+    except ValueError as exc:
+        raise ValueError(f"output_path must stay under {base}") from exc
+    if resolved.is_dir():
+        resolved = resolved / _safe_attachment_filename(filename, attachment_id)
+    return resolved
+
+
 def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Execute a typed route mirroring taylorwilsdon/google_workspace_mcp tools.
 
@@ -3152,6 +3220,30 @@ def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) ->
     if tool == "get_gmail_message_content":
         mid, = _require(payload, "message_id")
         return req("GET", f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{q(mid, safe='')}", params={"format": str(payload.get("fmt") or payload.get("format") or "full")})
+    if tool == "list_gmail_attachments":
+        mid, = _require(payload, "message_id")
+        message_response = req("GET", f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{q(mid, safe='')}", params={"format": "full"})
+        message_raw = message_response.get("json")
+        message: dict[str, Any] = message_raw if isinstance(message_raw, dict) else {}
+        attachments = _collect_gmail_attachment_parts(message)
+        return {"message_id": mid, "attachments": attachments, "count": len(attachments)}
+    if tool in {"get_gmail_attachment", "download_gmail_attachment"}:
+        mid, attachment_id = _require(payload, "message_id", "attachment_id")
+        attachment_response = req("GET", f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{q(mid, safe='')}/attachments/{q(attachment_id, safe='')}")
+        attachment_raw = attachment_response.get("json")
+        attachment_json: dict[str, Any] = attachment_raw if isinstance(attachment_raw, dict) else {}
+        data = str(attachment_json.get("data") or "")
+        filename = _safe_attachment_filename(str(payload.get("filename") or ""), str(attachment_id))
+        mime_type = str(payload.get("mime_type") or "application/octet-stream")
+        size = int(attachment_json.get("size") or 0)
+        if tool == "get_gmail_attachment":
+            return {"message_id": mid, "attachment_id": attachment_id, "filename": filename, "mime_type": mime_type, "size": size, "data": data, "encoding": "base64url"}
+        content = _base64url_decode(data)
+        output_path_raw = str(payload.get("output_path") or "").strip()
+        output_path = _gmail_attachment_output_path(output_path_raw, str(mid), str(attachment_id), filename)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(content)
+        return {"status": "downloaded", "message_id": mid, "attachment_id": attachment_id, "filename": filename, "mime_type": mime_type, "size": len(content), "sha256": hashlib.sha256(content).hexdigest(), "path": str(output_path)}
     if tool == "get_gmail_messages_content_batch":
         return {"items": [_workspace_tool_execute(profile, "get_gmail_message_content", {**payload, "message_id": mid}) for mid in payload.get("message_ids", [])]}
     if tool == "get_gmail_thread_content":
@@ -3667,6 +3759,9 @@ ROUTES = {
     "/v1/tools/check_drive_file_public_access": _workspace_tool_route,
     "/v1/tools/search_gmail_messages": _workspace_tool_route,
     "/v1/tools/get_gmail_message_content": _workspace_tool_route,
+    "/v1/tools/list_gmail_attachments": _workspace_tool_route,
+    "/v1/tools/get_gmail_attachment": _workspace_tool_route,
+    "/v1/tools/download_gmail_attachment": _workspace_tool_route,
     "/v1/tools/get_gmail_messages_content_batch": _workspace_tool_route,
     "/v1/tools/send_gmail_message": _workspace_tool_route,
     "/v1/tools/get_gmail_thread_content": _workspace_tool_route,

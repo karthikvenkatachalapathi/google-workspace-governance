@@ -646,6 +646,37 @@ def get_gmail_message_content(message_id: str, body_format: Any = "text", token_
     return workspace_tool_route("get_gmail_message_content", payload, token_route)
 
 @mcp.tool()
+def list_gmail_attachments(message_id: str, token_route: str | None = None) -> dict[str, Any]:
+    """List attachment metadata for a Gmail message (governed route: gmail.list_gmail_attachments)."""
+    payload = {k: v for k, v in {
+        "message_id": message_id,
+    }.items() if v is not None}
+    return workspace_tool_route("list_gmail_attachments", payload, token_route)
+
+@mcp.tool()
+def get_gmail_attachment(message_id: str, attachment_id: str, filename: str | None = None, mime_type: str | None = None, token_route: str | None = None) -> dict[str, Any]:
+    """Retrieve a Gmail attachment as base64url data (governed route: gmail.get_gmail_attachment)."""
+    payload = {k: v for k, v in {
+        "message_id": message_id,
+        "attachment_id": attachment_id,
+        "filename": filename,
+        "mime_type": mime_type,
+    }.items() if v is not None}
+    return workspace_tool_route("get_gmail_attachment", payload, token_route)
+
+@mcp.tool()
+def download_gmail_attachment(message_id: str, attachment_id: str, output_path: str | None = None, filename: str | None = None, mime_type: str | None = None, token_route: str | None = None) -> dict[str, Any]:
+    """Download a Gmail attachment to a governed local file path (governed route: gmail.download_gmail_attachment)."""
+    payload = {k: v for k, v in {
+        "message_id": message_id,
+        "attachment_id": attachment_id,
+        "output_path": output_path,
+        "filename": filename,
+        "mime_type": mime_type,
+    }.items() if v is not None}
+    return workspace_tool_route("download_gmail_attachment", payload, token_route)
+
+@mcp.tool()
 def get_gmail_messages_content_batch(message_ids: list[str], format: Any = "full", body_format: Any = "text", token_route: str | None = None) -> dict[str, Any]:
     """Batch retrieve message content (governed route: gmail.get_gmail_messages_content_batch)."""
     payload = {k: v for k, v in {

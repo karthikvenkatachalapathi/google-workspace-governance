@@ -119,7 +119,7 @@ The goal is simple: keep the useful Workspace MCP experience, but make it accoun
 <tr>
 <td valign="top" width="50%">
 
-**📧 Gmail** — governed read, draft, send, label, thread, and filter operations<br>
+**📧 Gmail** — governed read, attachment download, draft, send, label, thread, and filter operations<br>
 **📁 Drive** — file search, content access, import/export, sharing, permissions, and deletes<br>
 **📅 Calendar** — events, availability, focus time, out-of-office, reminders, and recurrence<br>
 **📝 Docs** — document creation, content extraction, text edits, comments, tables, images, headers/footers<br>

@@ -27,6 +27,9 @@ ACTION_ALIASES: dict[str, str] = {
     "calendar.freebusy": "calendar.query_freebusy",
     "gmail.search": "gmail.search_gmail_messages",
     "gmail.get": "gmail.get_gmail_message_content",
+    "gmail.attachments.list": "gmail.list_gmail_attachments",
+    "gmail.attachments.get": "gmail.get_gmail_attachment",
+    "gmail.attachments.download": "gmail.download_gmail_attachment",
     "gmail.draft": "gmail.draft_gmail_message",
     "gmail.modify": "gmail.modify_gmail_message_labels",
     "gmail.send": "gmail.send_gmail_message",
@@ -71,7 +74,7 @@ DEFAULT_POLICY: dict[str, Any] = {
     "unknown_resource_default": "ask",
     "workflow_intent_policy_role": "audit_metadata_only",
     "operation_classes": {
-        "gmail_read": {"actions": ["gmail.search_gmail_messages", "gmail.get_gmail_message_content", "gmail.get_gmail_messages_content_batch", "gmail.get_gmail_thread_content", "gmail.get_gmail_threads_content_batch", "gmail.list_gmail_labels", "gmail.list_gmail_filters"], "default_decision": "ask"},
+        "gmail_read": {"actions": ["gmail.search_gmail_messages", "gmail.get_gmail_message_content", "gmail.list_gmail_attachments", "gmail.get_gmail_attachment", "gmail.download_gmail_attachment", "gmail.get_gmail_messages_content_batch", "gmail.get_gmail_thread_content", "gmail.get_gmail_threads_content_batch", "gmail.list_gmail_labels", "gmail.list_gmail_filters"], "default_decision": "ask"},
         "gmail_draft": {"actions": ["gmail.draft_gmail_message"], "default_decision": "ask"},
         "gmail_send": {"actions": ["gmail.send_gmail_message"], "default_decision": "deny"},
         "gmail_mutation": {"actions": ["gmail.modify_gmail_message_labels", "gmail.batch_modify_gmail_message_labels", "gmail.manage_gmail_label", "gmail.manage_gmail_filter"], "default_decision": "ask"},

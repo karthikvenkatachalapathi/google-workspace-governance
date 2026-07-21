@@ -264,6 +264,7 @@ def assert_gateway_action_mapping() -> None:
         ("/v1/docs/get", "docs.get_doc_content", {"document_id": "doc", "token_route": "agent-b/workspace-shared"}, "docs_workspace_shared_workspace"),
         ("/v1/calendar/update", "calendar.manage_event", {"event_id": "evt", "token_route": "agent-b/workspace-shared"}, "calendar_workspace_shared_primary"),
         ("/v1/sheets/update", "sheets.modify_sheet_values", {"spreadsheet_id": "sheet", "range_a1": "A1", "token_route": "agent-b/workspace-shared"}, "sheets_workspace_shared_workspace"),
+        ("/v1/gmail/attachment", "gmail.get_gmail_attachment", {"message_id": "msg", "attachment_id": "att", "token_route": "agent-b/workspace-shared"}, "gmail_workspace_shared"),
     ]
     for path, expected_action, payload, expected_resource in typed_policy_cases:
         policy_action, policy_resource = gateway._route_policy_context(path, "agent-b", payload)
@@ -407,6 +408,20 @@ def assert_gateway_upstream_payload_adapters() -> None:
     drive_revoke = gateway._workspace_tool_execute("agent-a", "manage_drive_access", {"file_id": "file-1", "action": "revoke", "permission_id": "perm-1"})
     if drive_revoke["method"] != "DELETE" or not str(drive_revoke["url"]).endswith("/permissions/perm-1"):
         raise SystemExit(f"manage_drive_access action=revoke did not route to permission DELETE: {drive_revoke}")
+
+    gateway._workspace_tool_execute("agent-a", "get_gmail_attachment", {"message_id": "msg-1", "attachment_id": "att-1", "filename": "offer.pdf", "mime_type": "application/pdf"})
+    gmail_attachment = calls[-1]
+    if gmail_attachment["method"] != "GET" or gmail_attachment["action"] != "gmail.get_gmail_attachment" or not str(gmail_attachment["url"]).endswith("/messages/msg-1/attachments/att-1"):
+        raise SystemExit(f"get_gmail_attachment did not route to Gmail attachment GET: {gmail_attachment}")
+    safe_path = gateway._gmail_attachment_output_path("nested/offer.pdf", "msg-1", "att-1", "offer.pdf")
+    if "/tmp/google-governance-gmail-attachments/nested/offer.pdf" not in str(safe_path):
+        raise SystemExit(f"relative Gmail attachment output path was not rooted under the governed base: {safe_path}")
+    try:
+        gateway._gmail_attachment_output_path("/etc/passwd", "msg-1", "att-1", "offer.pdf")
+    except ValueError:
+        pass
+    else:
+        raise SystemExit("absolute Gmail attachment output path escaped the governed download base")
 
 
 def assert_gateway_observability_fields() -> None:
