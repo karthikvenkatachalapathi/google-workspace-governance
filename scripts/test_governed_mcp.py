@@ -416,12 +416,30 @@ def assert_gateway_upstream_payload_adapters() -> None:
     safe_path = gateway._gmail_attachment_output_path("nested/offer.pdf", "msg-1", "att-1", "offer.pdf")
     if "/tmp/google-governance-gmail-attachments/nested/offer.pdf" not in str(safe_path):
         raise SystemExit(f"relative Gmail attachment output path was not rooted under the governed base: {safe_path}")
+    default_path = gateway._gmail_attachment_output_path("", "msg-1", "att-1", "offer.pdf")
+    if "/tmp/google-governance-gmail-attachments/msg-1/offer.pdf" not in str(default_path):
+        raise SystemExit(f"default Gmail attachment output path was not rooted by message id: {default_path}")
+    try:
+        gateway._gmail_attachment_output_path("/tmp/offer.pdf", "msg-1", "att-1", "offer.pdf")
+    except ValueError as exc:
+        if "omit output_path" not in str(exc) or "relative filename" not in str(exc):
+            raise SystemExit(f"unsafe Gmail path guidance was not actionable: {exc}")
+    else:
+        raise SystemExit("/tmp Gmail attachment output path escaped the governed download base")
     try:
         gateway._gmail_attachment_output_path("/etc/passwd", "msg-1", "att-1", "offer.pdf")
     except ValueError:
         pass
     else:
         raise SystemExit("absolute Gmail attachment output path escaped the governed download base")
+    gateway._validate_workspace_tool_payload_before_approval("agent-a", {"_gateway_path": "/v1/tools/download_gmail_attachment", "message_id": "msg", "attachment_id": "att", "output_path": "offer.pdf"})
+    try:
+        gateway._validate_workspace_tool_payload_before_approval("agent-a", {"_gateway_path": "/v1/tools/download_gmail_attachment", "message_id": "msg", "attachment_id": "att", "output_path": "/tmp/offer.pdf"})
+    except ValueError as exc:
+        if "output_path must stay under" not in str(exc):
+            raise SystemExit(f"unsafe Gmail path approval validation returned wrong error: {exc}")
+    else:
+        raise SystemExit("unsafe Gmail attachment output path reached approval storage validation")
 
 
 def assert_gateway_observability_fields() -> None:

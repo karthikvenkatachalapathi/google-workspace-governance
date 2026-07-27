@@ -3135,10 +3135,32 @@ def _gmail_attachment_output_path(output_path: str, message_id: str, attachment_
     try:
         resolved.relative_to(base)
     except ValueError as exc:
-        raise ValueError(f"output_path must stay under {base}") from exc
+        raise ValueError(
+            f"output_path must stay under {base}; omit output_path or pass a relative filename like 'attachment.pdf'"
+        ) from exc
     if resolved.is_dir():
         resolved = resolved / _safe_attachment_filename(filename, attachment_id)
     return resolved
+
+
+def _validate_workspace_tool_payload_before_approval(profile: str, payload: dict[str, Any]) -> None:
+    """Reject requests that are guaranteed to fail before storing approval state."""
+    raw_path = str(payload.get("_gateway_path") or "").strip()
+    raw_tool = str(payload.get("_tool") or "").strip()
+    tool = raw_tool or (raw_path.rsplit("/", 1)[-1] if raw_path.startswith("/v1/tools/") else "")
+    action = str(payload.get("action") or "").strip()
+    if tool == "download_gmail_attachment" or action == "gmail.download_gmail_attachment":
+        # Approval can execute long after the requesting agent has moved on. Do
+        # not create an approval card for a path that the replay worker will
+        # reject later; fail closed immediately with the exact safe-path rule.
+        output_path = str(payload.get("output_path") or "").strip()
+        if output_path:
+            _gmail_attachment_output_path(
+                output_path,
+                str(payload.get("message_id") or "message"),
+                str(payload.get("attachment_id") or "attachment"),
+                str(payload.get("filename") or "attachment"),
+            )
 
 
 def _workspace_tool_execute(profile: str, tool: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3505,6 +3527,7 @@ def _workspace_tool_route(profile: str, payload: dict[str, Any]) -> dict[str, An
 def _governance_blocked(profile: str, payload: dict[str, Any]) -> dict[str, Any]:
     """Create/audit a pending approval request for high-risk governed surfaces."""
     started = time.monotonic()
+    _validate_workspace_tool_payload_before_approval(profile, payload)
     action = str(payload.get("action") or "google.blocked")
     resource_alias = str(payload.get("resource_alias") or resource_for(profile, action, payload))
     reason = str(payload.get("reason") or "approval workflow required before execution")

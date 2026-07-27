@@ -666,7 +666,13 @@ def get_gmail_attachment(message_id: str, attachment_id: str, filename: str | No
 
 @mcp.tool()
 def download_gmail_attachment(message_id: str, attachment_id: str, output_path: str | None = None, filename: str | None = None, mime_type: str | None = None, token_route: str | None = None) -> dict[str, Any]:
-    """Download a Gmail attachment to a governed local file path (governed route: gmail.download_gmail_attachment)."""
+    """Download a Gmail attachment to a governed local file path.
+
+    Prefer omitting output_path. If provided, it must be relative (for example
+    "invoice.pdf") or already under the gateway's governed attachment directory;
+    absolute paths such as /tmp/invoice.pdf or home/vault paths are rejected
+    before an approval request is stored.
+    """
     payload = {k: v for k, v in {
         "message_id": message_id,
         "attachment_id": attachment_id,
