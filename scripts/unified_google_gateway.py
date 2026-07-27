@@ -1289,8 +1289,8 @@ def _approval_owner_for_profile(profile: str) -> str:
                 if username:
                     matches.append(username)
         # Only collapse profile -> owner when the profile is unambiguous. Shared
-        # profiles such as daily-assistant may represent both Karthik and Tanya;
-        # in that case approval_tenant_agent_acl must decide the delivery target.
+        # profiles may represent multiple users; in that case
+        # approval_tenant_agent_acl must decide the delivery target.
         unique = sorted(set(matches))
         return unique[0] if len(unique) == 1 else ""
     except sqlite3.Error:

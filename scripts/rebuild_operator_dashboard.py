@@ -16,10 +16,8 @@ LOKI_UID = "f4aae18b-0c63-4887-98e9-c11a45fbbc8b"
 FOLDER_UID = "homelab-observability"
 DASH_UID = "google-workspace-governance-ops"
 DASH_TITLE = "Google Governance Ops -- Operator View"
-VAULT_PATH = Path("/home/hermes/Documents/Hermes-Obisidian-Vault/HomeLab/Project Ideas/Hermes Google Workspace Governance Gateway/grafana/google-workspace-governance-ops-dashboard.json")
-REPO_PATH = Path("/home/hermes/google-workspace-governance/grafana/google-workspace-governance-ops-dashboard.json")
-GITHUB_REPO_PATH = Path("/home/hermes/Documents/Hermes-Obisidian-Vault/HomeLab/Project Ideas/Google Workspace Governance Gateway - GitHub Repo/grafana/google-workspace-governance-ops-dashboard.json")
-CFG_PATH = Path("/home/hermes/.hermes/config.yaml")
+REPO_PATH = Path(__file__).resolve().parent.parent / "grafana" / "google-workspace-governance-ops-dashboard.json"
+CFG_PATH = Path(os.environ.get("HERMES_CONFIG", os.path.expanduser("~/.hermes/config.yaml")))
 
 LOKI_AUDIT_SELECTOR = '{job=~"google-workspace-governance-gateway-audit|hermes-google-governance-gateway-audit|google-workspace-governance-control-audit|hermes-google-governance-control-audit"}'
 AUDIT_FILTERS = '| json | profile=~"$profile" | token_route=~"$workspace" | service=~"$service" | decision=~"$decision" | status=~"$status"'
@@ -48,8 +46,8 @@ def grafana_env():
     key = os.environ.get("GRAFANA_API_KEY") or find_key(cfg, "GRAFANA_API_KEY")
     if not key or str(key).startswith("__"):
         raise SystemExit("GRAFANA_API_KEY missing or placeholder")
-    os.environ["NO_PROXY"] = os.environ.get("NO_PROXY", "") + ",127.0.0.1,localhost,192.168.2.239,.home.karthikvenkat.us"
-    os.environ["no_proxy"] = os.environ.get("no_proxy", "") + ",127.0.0.1,localhost,192.168.2.239,.home.karthikvenkat.us"
+    os.environ["NO_PROXY"] = os.environ.get("NO_PROXY", "") + ",127.0.0.1,localhost"
+    os.environ["no_proxy"] = os.environ.get("no_proxy", "") + ",127.0.0.1,localhost"
     return url, key
 
 
@@ -117,7 +115,7 @@ def audit_table(pid, title, y, h, expr, desc=""):
         "fieldConfig": {
             "defaults": {"custom": {"align": "auto", "cellOptions": {"type": "auto"}, "filterable": True}, "mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": None}]}},
             "overrides": [
-                {"matcher": {"id": "byName", "options": "Profile / Agent"}, "properties": [{"id": "mappings", "value": [{"type": "value", "options": {"reasoning": {"index": 0, "text": "reasoning / Dumbledore"}, "airbnb": {"index": 1, "text": "airbnb / Hedwig"}, "daily-assistant": {"index": 2, "text": "daily-assistant / Hagrid"}, "default": {"index": 3, "text": "default / Hermione"}, "librarian": {"index": 4, "text": "librarian / Pince"}}}]}]},
+                {"matcher": {"id": "byName", "options": "Profile / Agent"}, "properties": [{"id": "mappings", "value": [{"type": "value", "options": {"reasoning": {"index": 0, "text": "reasoning / Research Agent"}, "airbnb": {"index": 1, "text": "airbnb / Property Manager"}, "daily-assistant": {"index": 2, "text": "daily-assistant / Daily Assistant"}, "default": {"index": 3, "text": "default / Default Agent"}, "librarian": {"index": 4, "text": "librarian / Knowledge Agent"}}}]}]},
                 {"matcher": {"id": "byName", "options": "Decision"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background"}}, {"id": "mappings", "value": [{"options": {"allow": {"color": "green", "index": 0, "text": "APPROVED"}, "approved": {"color": "green", "index": 1, "text": "APPROVED"}, "ask": {"color": "yellow", "index": 2, "text": "ASK"}, "deny": {"color": "red", "index": 3, "text": "DENIED"}, "denied": {"color": "red", "index": 4, "text": "DENIED"}}, "type": "value"}]}]},
                 {"matcher": {"id": "byName", "options": "Approval State"}, "properties": [{"id": "custom.cellOptions", "value": {"type": "color-background"}}]},
             ],
@@ -134,9 +132,9 @@ def lifecycle_table(pid, y):
         ("Inbound request received", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} [24h]))'),
         ("Policy evaluated", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | decision=~"allow|approved|ask|deny|denied|blocked|policy-denied|auto-policy" [24h]))'),
         ("Auto-approved", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | decision=~"allow|approved|auto-policy" | status!~"pending|waiting" [24h]))'),
-        ("Asked Karthik", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | decision=~"ask|approval_required" [24h]))'),
-        ("Approved by Karthik", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | action=~".*approval.*" | decision=~"allow|approved" [24h]))'),
-        ("Denied by Karthik", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | action=~".*approval.*" | decision=~"deny|denied" [24h]))'),
+        ("Asked operator", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | decision=~"ask|approval_required" [24h]))'),
+        ("Approved by operator", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | action=~".*approval.*" | decision=~"allow|approved" [24h]))'),
+        ("Denied by operator", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | action=~".*approval.*" | decision=~"deny|denied" [24h]))'),
         ("Denied by policy", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | decision=~"deny|denied|blocked|policy-denied" [24h]))'),
         ("Executed", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | status=~"success|ok|executed|complete|completed" [24h]))'),
         ("Failed", f'sum(count_over_time({LOKI_AUDIT_SELECTOR} {AUDIT_FILTERS} | status=~"error|failed|failure" [24h]))'),
@@ -149,9 +147,9 @@ def lifecycle_table(pid, y):
         ("Inbound request received", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS}}}[24h]))) or vector(0)'),
         ("Policy evaluated", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"allow|approved|ask|deny|denied|blocked|policy-denied|auto-policy"}}[24h]))) or vector(0)'),
         ("Auto-approved", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"allow|approved|auto-policy",status!~"pending|waiting"}}[24h]))) or vector(0)'),
-        ("Asked Karthik", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"ask|approval_required"}}[24h]))) or vector(0)'),
-        ("Approved by Karthik", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},action=~".*approval.*",decision=~"allow|approved"}}[24h]))) or vector(0)'),
-        ("Denied by Karthik", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},action=~".*approval.*",decision=~"deny|denied"}}[24h]))) or vector(0)'),
+        ("Asked operator", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"ask|approval_required"}}[24h]))) or vector(0)'),
+        ("Approved by operator", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},action=~".*approval.*",decision=~"allow|approved"}}[24h]))) or vector(0)'),
+        ("Denied by operator", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},action=~".*approval.*",decision=~"deny|denied"}}[24h]))) or vector(0)'),
         ("Denied by policy", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"deny|denied|blocked|policy-denied"}}[24h]))) or vector(0)'),
         ("Executed", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},status=~"success|ok|executed|complete|completed"}}[24h]))) or vector(0)'),
         ("Failed", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},status=~"error|failed|failure"}}[24h]))) or vector(0)'),
@@ -178,7 +176,7 @@ def build_dashboard():
     cards = [
         ("Actions last 24h", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS}}}[24h]))) or vector(0)', [{"color":"green","value":None}], "All governance action/audit rows in the last 24 hours."),
         ("Approved", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"allow|approved|auto-policy"}}[24h]))) or vector(0)', [{"color":"green","value":None}], "Allowed or auto-approved governance decisions."),
-        ("Asked / waiting", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"ask|approval_required"}}[24h]))) or vector(0)', [{"color":"green","value":None},{"color":"yellow","value":1}], "Requests that required Karthik approval."),
+        ("Asked / waiting", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"ask|approval_required"}}[24h]))) or vector(0)', [{"color":"green","value":None},{"color":"yellow","value":1}], "Requests that required operator approval."),
         ("Denied", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},decision=~"deny|denied|blocked|policy-denied"}}[24h]))) or vector(0)', [{"color":"green","value":None},{"color":"red","value":1}], "Operator-visible denied decisions."),
         ("Emergency overrides", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},action=~".*emergency.*|.*override.*|.*break.*glass.*"}}[24h]))) or vector(0)', [{"color":"green","value":None},{"color":"red","value":1}], "Current: count in last 24h. Last seen and affected rows appear in Emergency override events below."),
         ("Policy errors", f'(sum(increase(google_workspace_governance_audit_events_total{{{PROM_FILTERS},status=~"policy_error|policy_failed|error|failed"}}[24h]))) or vector(0)', [{"color":"green","value":None},{"color":"red","value":1}], "Policy evaluation or execution failures."),
@@ -244,7 +242,7 @@ def validate_dashboard(dash):
 def main():
     dash = build_dashboard()
     validate_dashboard(dash)
-    for path in [VAULT_PATH, REPO_PATH, GITHUB_REPO_PATH]:
+    for path in [REPO_PATH]:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(dash, indent=2, sort_keys=False) + "\n")
         print("wrote", path)

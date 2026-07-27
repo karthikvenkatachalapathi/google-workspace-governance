@@ -154,7 +154,7 @@
       "id": 4,
       "type": "stat",
       "title": "Asked / waiting",
-      "description": "Requests that required Karthik approval.",
+      "description": "Requests that required operator approval.",
       "datasource": {
         "type": "prometheus",
         "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
@@ -567,23 +567,23 @@
                     "options": {
                       "reasoning": {
                         "index": 0,
-                        "text": "reasoning / Dumbledore"
+                        "text": "reasoning / Research Agent"
                       },
                       "airbnb": {
                         "index": 1,
-                        "text": "airbnb / Hedwig"
+                        "text": "airbnb / Property Manager"
                       },
                       "daily-assistant": {
                         "index": 2,
-                        "text": "daily-assistant / Hagrid"
+                        "text": "daily-assistant / Daily Assistant"
                       },
                       "default": {
                         "index": 3,
-                        "text": "default / Hermione"
+                        "text": "default / Default Agent"
                       },
                       "librarian": {
                         "index": 4,
-                        "text": "librarian / Pince"
+                        "text": "librarian / Knowledge Agent"
                       }
                     }
                   }
@@ -779,7 +779,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "legendFormat": "Asked Karthik"
+          "legendFormat": "Asked operator"
         },
         {
           "refId": "E",
@@ -790,7 +790,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "legendFormat": "Approved by Karthik"
+          "legendFormat": "Approved by operator"
         },
         {
           "refId": "F",
@@ -801,7 +801,7 @@
             "type": "prometheus",
             "uid": "d6948c6f-46de-4e8b-9734-52fd5d0d0093"
           },
-          "legendFormat": "Denied by Karthik"
+          "legendFormat": "Denied by operator"
         },
         {
           "refId": "G",
@@ -950,23 +950,23 @@
                     "options": {
                       "reasoning": {
                         "index": 0,
-                        "text": "reasoning / Dumbledore"
+                        "text": "reasoning / Research Agent"
                       },
                       "airbnb": {
                         "index": 1,
-                        "text": "airbnb / Hedwig"
+                        "text": "airbnb / Property Manager"
                       },
                       "daily-assistant": {
                         "index": 2,
-                        "text": "daily-assistant / Hagrid"
+                        "text": "daily-assistant / Daily Assistant"
                       },
                       "default": {
                         "index": 3,
-                        "text": "default / Hermione"
+                        "text": "default / Default Agent"
                       },
                       "librarian": {
                         "index": 4,
-                        "text": "librarian / Pince"
+                        "text": "librarian / Knowledge Agent"
                       }
                     }
                   }
@@ -1178,23 +1178,23 @@
                     "options": {
                       "reasoning": {
                         "index": 0,
-                        "text": "reasoning / Dumbledore"
+                        "text": "reasoning / Research Agent"
                       },
                       "airbnb": {
                         "index": 1,
-                        "text": "airbnb / Hedwig"
+                        "text": "airbnb / Property Manager"
                       },
                       "daily-assistant": {
                         "index": 2,
-                        "text": "daily-assistant / Hagrid"
+                        "text": "daily-assistant / Daily Assistant"
                       },
                       "default": {
                         "index": 3,
-                        "text": "default / Hermione"
+                        "text": "default / Default Agent"
                       },
                       "librarian": {
                         "index": 4,
-                        "text": "librarian / Pince"
+                        "text": "librarian / Knowledge Agent"
                       }
                     }
                   }
@@ -1406,23 +1406,23 @@
                     "options": {
                       "reasoning": {
                         "index": 0,
-                        "text": "reasoning / Dumbledore"
+                        "text": "reasoning / Research Agent"
                       },
                       "airbnb": {
                         "index": 1,
-                        "text": "airbnb / Hedwig"
+                        "text": "airbnb / Property Manager"
                       },
                       "daily-assistant": {
                         "index": 2,
-                        "text": "daily-assistant / Hagrid"
+                        "text": "daily-assistant / Daily Assistant"
                       },
                       "default": {
                         "index": 3,
-                        "text": "default / Hermione"
+                        "text": "default / Default Agent"
                       },
                       "librarian": {
                         "index": 4,
-                        "text": "librarian / Pince"
+                        "text": "librarian / Knowledge Agent"
                       }
                     }
                   }

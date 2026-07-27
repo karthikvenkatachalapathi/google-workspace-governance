@@ -129,7 +129,7 @@ def main() -> None:
         raise SystemExit(f"default route used stale connected account instead of active account_alias: {resolved_resource}")
     decision = governance_policy.classify("daily-assistant", "gmail.send_gmail_message", resolved_resource)
     if decision.get("decision") != "deny" or "resource_override" not in str(decision.get("decision_source")):
-        raise SystemExit(f"Tanya Gmail send should be denied by active resource override, not escalated to approval: {decision}")
+        raise SystemExit(f"Gmail send should be denied by active resource override, not escalated to approval: {decision}")
 
     payload = {
         "profile": "agent-a",
