@@ -1,5 +1,3 @@
-<!-- mcp-name: io.github.karthikvenkatachalapathi/google-workspace-governance -->
-
 <div align="center">
 
 # <span style="color:#cad8d9">Google Workspace Governance Gateway</span>
