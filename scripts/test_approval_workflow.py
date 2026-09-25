@@ -64,6 +64,25 @@ class FakeSession:
         return FakeResponse()
 
 
+class FakeBadRequestResponse(FakeResponse):
+    status_code = 400
+    content = b'{"error":{"message":"invalid event payload"}}'
+    headers = {"content-type": "application/json"}
+
+    def json(self) -> dict[str, Any]:
+        return {"error": {"message": "invalid event payload"}}
+
+
+class FakeBadRequestSession(FakeSession):
+    def post(self, url: str, **kwargs: Any) -> FakeBadRequestResponse:
+        self.calls.append(("POST", url, kwargs))
+        return FakeBadRequestResponse()
+
+    def request(self, method: str, url: str, **kwargs: Any) -> FakeBadRequestResponse:
+        self.calls.append((method.upper(), url, kwargs))
+        return FakeBadRequestResponse()
+
+
 def assert_no_raw_values(path: Path, *raw_values: str) -> None:
     text = path.read_text(encoding="utf-8")
     for value in raw_values:
@@ -385,6 +404,47 @@ def main() -> None:
         raise SystemExit(f"telegram callback did not remove approval buttons: {edit_payloads[-1]}")
     if "approval status: approved and executed" not in str(edit_payloads[-1].get("text") or "").lower():
         raise SystemExit(f"telegram callback did not replace text with execution status: {edit_payloads[-1]}")
+
+    payload4_failed = dict(payload)
+    payload4_failed.update({
+        "request_id": "approval-test-telegram-callback-http-400",
+        "to": "telegram-failure@example.com",
+        "subject": "Telegram callback HTTP 400 test",
+        "body": "offline telegram body",
+    })
+    blocked4_failed = gateway._governance_blocked("agent-a", dict(payload4_failed))
+    approval_id4_failed = blocked4_failed.get("approval_id")
+    setattr(gateway, "_session", lambda profile, route=None: FakeBadRequestSession())
+    telegram_failure_posts = []
+    def fake_telegram_failure_post(url, **kwargs):
+        telegram_failure_posts.append((url, kwargs))
+        return FakeTelegramCallbackResponse()
+    setattr(gateway.requests, "post", fake_telegram_failure_post)
+    setattr(gateway, "_telegram_bot_token_for_chat", lambda chat_id: "bot-token")
+    failed_cb_token = gateway._approval_callback_token(approval_id4_failed, "approve_once")
+    try:
+        failed_callback_result = gateway._telegram_handle_update(
+            {
+                "callback_query": {
+                    "id": "cb-test-http-400",
+                    "data": f"gg:a:{approval_id4_failed}:{failed_cb_token}",
+                    "from": {"username": "legacy_admin"},
+                    "message": {"message_id": 2, "chat": {"id": "123"}},
+                }
+            },
+            {"token": [gateway._approval_webhook_token()]},
+        )
+    finally:
+        setattr(gateway.requests, "post", old_requests_post_cb)
+        setattr(gateway, "_telegram_bot_token_for_chat", old_bot_for_chat_cb)
+    if failed_callback_result.get("status") != "execution_failed":
+        raise SystemExit(f"HTTP 400 approval replay was falsely reported as success: {failed_callback_result}")
+    failed_state = gateway._approval_state().get(approval_id4_failed, {})
+    if failed_state.get("state") != "failed_terminal":
+        raise SystemExit(f"HTTP 400 approval replay did not become failed_terminal: {failed_state}")
+    failure_edits = [kwargs.get("json") or {} for url, kwargs in telegram_failure_posts if url.endswith("/editMessageText")]
+    if not failure_edits or "execution failed" not in str(failure_edits[-1].get("text") or "").lower():
+        raise SystemExit(f"Telegram approval failure was not rendered accurately: {telegram_failure_posts}")
 
     payload5 = dict(payload)
     payload5.update({

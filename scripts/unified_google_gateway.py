@@ -1094,8 +1094,18 @@ def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]],
         approval_profile = str((_approval_state().get(approval_id) or {}).get("profile") or "agent-a")
         if decision == "approve_once":
             result = _approval_approve_and_execute(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "approver": actor, "reason": "Telegram Approve & Execute", "tenant_id": tenant_id, "decision_channel": "telegram"})
-            _telegram_callback_response(bot_token, callback_id, "Approved and executed")
-            _telegram_edit_callback_message(bot_token, callback, f"✅ Approval status: approved and executed\nApproval: {approval_id}\nGateway result: {result.get('status')}")
+            if result.get("status") == "executed":
+                _telegram_callback_response(bot_token, callback_id, "Approved and executed")
+                _telegram_edit_callback_message(bot_token, callback, f"✅ Approval status: approved and executed\nApproval: {approval_id}\nGateway result: {result.get('status')}")
+            else:
+                raw_execution = result.get("execution")
+                execution = raw_execution if isinstance(raw_execution, dict) else {}
+                raw_execution_result = execution.get("result")
+                execution_result = raw_execution_result if isinstance(raw_execution_result, dict) else {}
+                status_code = execution_result.get("status_code")
+                status_line = f"\nHTTP status: {status_code}" if status_code else ""
+                _telegram_callback_response(bot_token, callback_id, "Execution failed", True)
+                _telegram_edit_callback_message(bot_token, callback, f"❌ Approval status: execution failed\nApproval: {approval_id}\nGateway result: {result.get('status')}{status_line}")
         else:
             result = _approval_decide(approval_profile, {"approval_admin_secret": _approval_admin_secret(), "approval_id": approval_id, "decision": "deny", "approver": actor, "reason": "Telegram deny", "tenant_id": tenant_id, "decision_channel": "telegram"})
             _telegram_callback_response(bot_token, callback_id, "Denied")
@@ -1105,7 +1115,8 @@ def _telegram_handle_update(update: dict[str, Any], query: dict[str, list[str]],
         msg = f"Approval failed: {type(exc).__name__}" + (f" - {detail[:120]}" if detail else "")
         _telegram_callback_response(bot_token, callback_id, msg, True)
         raise
-    return {"status": "ok", "approval_id": approval_id, "decision": decision, "result": result}
+    callback_status = "execution_failed" if decision == "approve_once" and result.get("status") != "executed" else "ok"
+    return {"status": callback_status, "approval_id": approval_id, "decision": decision, "result": result}
 
 
 def _approval_telegram_polling_enabled() -> bool:
@@ -1748,7 +1759,9 @@ def _approval_approve_and_execute(profile: str, payload: dict[str, Any]) -> dict
     retry_payload["_sealed_retry_payload"] = True
     retry_payload["_approval_execution_claimed"] = True
     result = _governance_execute_approved(approval_profile, retry_payload)
-    return {"status": "executed", "approval_id": approval_id, "decision": "approve_once", "profile": approval_profile, "execution": result}
+    execution_status = str(result.get("status") or "")
+    status = "executed" if execution_status in {"executed", "ok"} else "execution_failed"
+    return {"status": status, "approval_id": approval_id, "decision": "approve_once", "profile": approval_profile, "execution": result}
 
 
 def _approval_for_execution(payload: dict[str, Any]) -> dict[str, Any]:
@@ -2477,6 +2490,7 @@ def _enforce_acl(profile: str, action: str, resource_alias: str, payload: dict[s
         raise PermissionError(f"ACL denied {profile} {action} on {resource_alias}")
     # ask means do not execute now; create a bounded approval request unless an
     # identical request is already pending, approved, executing, or retryable.
+    _validate_workspace_tool_payload_before_approval(profile, payload)
     # For read-only actions, a human approval is a short-lived profile/action/
     # resource grant; calendar time windows and list pagination can legitimately
     # change between the approved execution and the agent retry, and must not
@@ -3642,9 +3656,14 @@ def _governance_execute_approved(profile: str, payload: dict[str, Any]) -> dict[
         return cached
     try:
         result = _execute_high_risk_action(profile, {k: v for k, v in payload.items() if k != "approval_id"})
-        status = "ok" if int(result.get("status_code") or 200) < 400 else "error"
+        status_code = int(result.get("status_code") or 200)
+        status = "ok" if status_code < 400 else "error"
         response = {"status": "executed" if status == "ok" else "error", "approval_id": payload["approval_id"], "action": action, "resource_alias": resource_alias, "result": result}
-        _mark_approval_executed(str(payload["approval_id"]), action, response)
+        if status == "ok":
+            _mark_approval_executed(str(payload["approval_id"]), action, response)
+        else:
+            retryable = status_code in {408, 409, 425, 429} or status_code >= 500
+            _mark_approval_execution_failed(str(payload["approval_id"]), action, f"HTTP {status_code}", retryable=retryable)
         _audit_observed(profile, action, status, payload, resource_alias, approval_id=payload["approval_id"], approved_by=approval.get("approver"), latency_ms=(time.monotonic() - started) * 1000, **_approval_safe_metadata(payload))
         return response
     except Exception as exc:

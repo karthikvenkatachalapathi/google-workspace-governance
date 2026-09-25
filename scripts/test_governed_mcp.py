@@ -440,6 +440,18 @@ def assert_gateway_upstream_payload_adapters() -> None:
             raise SystemExit(f"unsafe Gmail path approval validation returned wrong error: {exc}")
     else:
         raise SystemExit("unsafe Gmail attachment output path reached approval storage validation")
+    original_observe = getattr(gateway, "_observe")
+    try:
+        setattr(gateway, "_observe", lambda profile, action, payload, resource_alias=None: {"decision": "ask", "mode": "enforce"})
+        try:
+            gateway._enforce_acl("agent-a", "gmail.download_gmail_attachment", "gmail_agent_a", {"_gateway_path": "/v1/tools/download_gmail_attachment", "message_id": "msg", "attachment_id": "att", "output_path": "/tmp/offer.pdf"})
+        except ValueError as exc:
+            if "output_path must stay under" not in str(exc) or "relative filename" not in str(exc):
+                raise SystemExit(f"unsafe Gmail path ACL validation returned wrong error: {exc}")
+        else:
+            raise SystemExit("unsafe Gmail attachment output path reached ACL approval storage")
+    finally:
+        setattr(gateway, "_observe", original_observe)
 
 
 def assert_gateway_observability_fields() -> None:
